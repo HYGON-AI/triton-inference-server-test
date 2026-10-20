@@ -1,0 +1,27 @@
+name: "resnet50"
+backend: "migraphx"
+max_batch_size: 128
+
+input [
+  {
+    name: "input_1.1"
+    data_type: TYPE_FP16
+    dims: [ 3, 224, 224 ]
+  }
+]
+
+output [
+  {
+    name: "softmax_tensor:0"
+    data_type: TYPE_FP16
+    dims: [ 1000 ]
+  }
+]
+
+instance_group [
+  {
+    count: 1
+    kind: KIND_GPU
+    gpus: [0]
+  }
+]

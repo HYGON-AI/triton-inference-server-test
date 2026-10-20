@@ -1,0 +1,32 @@
+name: "resnet50_onnx"
+backend: "onnx"
+max_batch_size: 128
+
+input [
+  {
+    name: "input_1.1"
+    data_type: TYPE_FP16
+    dims: [ 3, 224, 224 ]
+  }
+]
+
+output [
+  {
+    name: "softmax_tensor:0"
+    data_type: TYPE_FP16
+    dims: [ 1000 ]
+  }
+]
+
+dynamic_batching {
+  preferred_batch_size: [ 128 ]
+  max_queue_delay_microseconds: 100000
+}
+
+instance_group [
+  {
+    count: 1
+    kind: KIND_GPU
+    gpus: [0]
+  }
+]
