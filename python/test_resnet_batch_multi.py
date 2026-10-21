@@ -1,5 +1,8 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
+# Copyright (c) 2026 Hygon Information Technology Co., Ltd.
+# SPDX-License-Identifier: BSD-3-Clause
+
 """test_resnet_batch_multi.py - ResNet50 多请求合并 (dynamic batching) 测试
 
 并发发送多个小请求, 验证 Triton dynamic batcher 将其合并为一个大 batch 执行。

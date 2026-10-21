@@ -1,4 +1,7 @@
 #!/bin/bash
+# Copyright (c) 2026 Hygon Information Technology Co., Ltd.
+# SPDX-License-Identifier: BSD-3-Clause
+
 # ============================================================
 # run_pytorch_backend.sh - PyTorch backend end-to-end test
 #   Starts tritonserver (HTTP 8020 / gRPC 8021) with

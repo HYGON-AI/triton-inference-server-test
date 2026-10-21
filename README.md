@@ -1,6 +1,6 @@
-# Triton Inference Server (DCU) 测试套件
+# Triton Inference Server (HCU) 测试套件
 
-在**海光 DCU**平台上运行与验证 Triton Inference Server（core + backend 移植版）的端到端测试套件，覆盖 **onnx** 与 **migraphx** 两个推理后端，包含模型加载、精度校验、批量性能、多请求合并（dynamic batching）等测试。
+在**海光 HCU**平台上运行与验证 Triton Inference Server（core + backend 移植版）的端到端测试套件，覆盖 **onnx** 与 **migraphx** 两个推理后端，包含模型加载、精度校验、批量性能、多请求合并（dynamic batching）等测试。
 
 - 制品仓库：`https://developer.sourcefind.cn/codes/OpenDAS/triton_inference_server_test.git`
 - 依赖源码：core / backend / onnx_backend / migraphx_backend / server（均由 `build.sh` 拉取并编译）
@@ -51,7 +51,7 @@ triton_inference_server_test/
 
 ## 二、前置条件
 
-- 海光 DCU + DTK 运行环境（`/opt/dtk`）
+- 海光 HCU + DTK 运行环境（`/opt/dtk`）
 - Docker（`run_all.sh` 使用镜像 `dtk:26.04-ubuntu22.04-mpi5.0-gcc11.4-cmake3.29-py3.12`）
 - 可访问 `developer.sourcefind.cn`（拉源码/模型）与 `pypi.tuna.tsinghua.edu.cn`（装 Python 包）
 - **git 凭据**（容器内 `/root/.git-credentials`，容器重建后需重配）：
@@ -194,7 +194,7 @@ import tritonserver
 ## 九、已知问题与注意事项
 
 1. **migraphx 不支持动态 batch**
-   DCU 版 migraphx 编译期固化 shape，动态 batch 模型会被编译成 batch=1。migraphx 模型需用**固定 batch**（`resnet50`/`yolov5s_mx` 为固定 128）。
+   HCU 版 migraphx 编译期固化 shape，动态 batch 模型会被编译成 batch=1。migraphx 模型需用**固定 batch**（`resnet50`/`yolov5s_mx` 为固定 128）。
 
 2. **migraphx + FP16 + 动态 shape 算子**
    YOLO 的 Detect 头含 `Shape/Gather/Range/Expand/Where` 等动态算子，migraphx 对 FP16 输出的 shape/buffer 处理有 bug（输出 buffer 分配异常）。**纯静态算子图（如 ResNet）的 migraphx FP16 正常**。
@@ -225,3 +225,15 @@ import tritonserver
 | `Incorrect shape ... should be {128,...}` | 固定 batch 模型收到了非 128 的请求 |
 | `No module named 'triton_compat'` | 需在 `python/` 目录下运行脚本（或在脚本开头把 `python/` 加入 `sys.path`） |
 | migraphx 加载慢 | 编译期图优化，属正常（ResNet ~28s，YOLO ~50s） |
+
+---
+
+## 许可证
+
+本仓库采用 BSD-3-Clause 许可证，完整文本见 [LICENSE](LICENSE)。
+
+## 第三方来源
+
+本仓库当前不包含第三方源码；`model_repo/` 下的 ONNX 模型与 `samples/` 下的测试图片属于测试数据。
+后续如引入第三方源码，必须在 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) 中登记项目、仓库、
+固定版本或 Commit、版权、许可证、本地路径与 HYGON 修改说明。

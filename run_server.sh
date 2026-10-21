@@ -1,4 +1,7 @@
 #!/bin/bash
+# Copyright (c) 2026 Hygon Information Technology Co., Ltd.
+# SPDX-License-Identifier: BSD-3-Clause
+
 # ============================================================
 # run_server.sh - 启动 Triton HTTP(8000)+gRPC(8001) 并端到端测试
 # 修复: 服务未就绪时立即报错并退出, 不再静默闯关导致 Connection refused

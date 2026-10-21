@@ -1,5 +1,8 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
+# Copyright (c) 2026 Hygon Information Technology Co., Ltd.
+# SPDX-License-Identifier: BSD-3-Clause
+
 """
 build_yolo_input.py
 将任意图片预处理为 YOLOv5s Triton 推理所需的 FP16 输入张量

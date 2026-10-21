@@ -1,3 +1,6 @@
+# Copyright (c) 2026 Hygon Information Technology Co., Ltd.
+# SPDX-License-Identifier: BSD-3-Clause
+
 export WORK_BASE=$1
 export SCRIPT_PATH=$(dirname $(realpath "$0") )
 export env_path=${SCRIPT_PATH}/env.sh

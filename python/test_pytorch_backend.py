@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+# Copyright (c) 2026 Hygon Information Technology Co., Ltd.
+# SPDX-License-Identifier: BSD-3-Clause
+
 """HTTP REST test for the Triton PyTorch backend (pytorch_add, TorchScript)."""
 import json
 import sys

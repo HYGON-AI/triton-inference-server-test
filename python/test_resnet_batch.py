@@ -1,5 +1,8 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
+# Copyright (c) 2026 Hygon Information Technology Co., Ltd.
+# SPDX-License-Identifier: BSD-3-Clause
+
 """test_resnet_batch.py - ResNet50 批量推理性能测试 (in-process)
 
 用法: python3 test_resnet_batch.py [model_repo] [backend_dir] [input.bin] [batch] [iters] [model_name] [fp16|fp32]

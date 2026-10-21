@@ -1,3 +1,6 @@
+// Copyright (c) 2026 Hygon Information Technology Co., Ltd.
+// SPDX-License-Identifier: BSD-3-Clause
+
 // test_yolo.cc
 // 目标检测 (YOLOv5s) Triton 推理样例客户端
 // 用法: ./test_yolo [model_name] [backend_path] [model_repo]
