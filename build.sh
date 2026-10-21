@@ -175,6 +175,37 @@ make install
 cd ../..
 
 
+# ---------- 2.4 pytorch backend ----------
+if [ -d "$SRC_ROOT/triton-inference-server-pytorch-backend-das" ]; then
+  echo "----- build pytorch backend -----"
+  TORCH=/usr/local/python3.12/lib/python3.12/site-packages/torch
+  cd triton-inference-server-pytorch-backend-das
+  rm -rf build && mkdir build && cd build
+  cmake .. \
+    -DCMAKE_BUILD_TYPE=Release \
+    -DCMAKE_CXX_COMPILER=/opt/dtk/bin/hipcc \
+    -DUSE_HCU=ON \
+    -DTRITON_ENABLE_GPU=ON \
+    -DTRITON_ENABLE_STATS=ON \
+    -DTRITON_PYTORCH_ENABLE_TORCHTRT=OFF \
+    -DDTK_ARCHS="gfx906;gfx926;gfx928;gfx936;gfx938" \
+    -DTRITON_PYTORCH_INCLUDE_PATHS="$TORCH/include;$TORCH/include/torch/csrc/api/include" \
+    -DTRITON_PYTORCH_LIB_PATHS="$TORCH/lib" \
+    -DFETCHCONTENT_BASE_DIR="$SRC_ROOT/cache_pytorch" \
+    -DFETCHCONTENT_SOURCE_DIR_REPO-COMMON="$SRC_ROOT/triton-inference-server-common-das" \
+    -DFETCHCONTENT_SOURCE_DIR_REPO-CORE="$SRC_ROOT/triton-inference-server-core-das" \
+    -DFETCHCONTENT_SOURCE_DIR_REPO-BACKEND="$SRC_ROOT/triton-inference-server-backend-das" \
+    -DFETCHCONTENT_SOURCE_DIR_REPO-THIRD-PARTY="$CACHE_CORE/repo-third-party-src" \
+    -DFETCHCONTENT_SOURCE_DIR_GOOGLETEST="$CACHE_CORE/googletest-src" \
+    -DFETCHCONTENT_SOURCE_DIR_PYBIND11="$CACHE_CORE/pybind11-src" \
+    -DCMAKE_INSTALL_PREFIX="$PREFIX"
+  make -j"$(nproc)"
+  make install
+  cd ../..
+else
+  echo "[skip] pytorch backend source not found"
+fi
+
 # ============================================================
 # 3) Python 依赖（tritonserver 绑定 + tritonclient）
 # ============================================================
@@ -189,3 +220,4 @@ echo "[OK] build 完成"
 echo "     tritonserver : $SERVER_PREFIX/bin/tritonserver"
 echo "     onnx backend : $PREFIX/backends/onnx/libtriton_onnx.so"
 echo "     migraphx     : $PREFIX/backends/migraphx/libtriton_migraphx.so"
+echo "     pytorch      : $PREFIX/backends/pytorch/libtriton_pytorch.so"

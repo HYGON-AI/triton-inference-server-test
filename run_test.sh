@@ -45,4 +45,5 @@ python3 -u python/test_resnet_batch.py ${SCRIPT_PATH}/model_repo ${WORK_BASE}/op
 # backend 会打印 [BATCH] execute: request_count=8 total_batch_size=128
 python3 -u python/test_resnet_batch_multi.py ${SCRIPT_PATH}/model_repo ${WORK_BASE}/opt/triton-server/backends ${SCRIPT_PATH}/samples/resnet_input.bin 128 5 resnet50_onnx fp16 8
 
-
+# PyTorch backend case (pytorch_add)
+./run_pytorch_backend.sh $WORK_BASE
