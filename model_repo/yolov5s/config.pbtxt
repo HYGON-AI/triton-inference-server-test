@@ -1,0 +1,27 @@
+name: "yolov5s"
+backend: "onnx"
+max_batch_size: 128
+
+input [
+  {
+    name: "images"
+    data_type: TYPE_FP16
+    dims: [ 3, 640, 640 ]
+  }
+]
+
+output [
+  {
+    name: "output0"
+    data_type: TYPE_FP16
+    dims: [ 25200, 85 ]
+  }
+]
+
+instance_group [
+  {
+    count: 1
+    kind: KIND_GPU
+    gpus: [0]
+  }
+]
