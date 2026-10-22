@@ -74,7 +74,7 @@ fi
 
 if [ "$NEED_BUILD" = "1" ]; then
     echo "  运行 build.sh (完整编译 core/backends, 耗时较长)..."
-    docker exec "$CONTAINER" bash $WORK_BASE/triton_inference_server_test/build.sh $WORK_BASE
+    docker exec "$CONTAINER" bash $WORK_BASE/triton_inference_server_test/build.sh $WORK_BASE HYGON-AI
 else
     echo "  跳过 build.sh (--test-only 或已构建)"
 fi

@@ -17,7 +17,8 @@
 export WORK_BASE=$1
 . "$(dirname "$(realpath "$0")")/env.sh"
 
-TRITON_ORG=${TRITON_ORG:-https://github.com/forwithgod}
+TRITON_ORG=https://github.com/$2
+echo "TRITON_ORG:$TRITON_ORG"
 # tracing 依赖 OpenTelemetry（多层 github 下载），默认关闭；需要时 TRITON_ENABLE_TRACING=ON
 TRITON_ENABLE_TRACING=${TRITON_ENABLE_TRACING:-OFF}
 SRC_ROOT=${WORK_BASE}/triton_inference_server
@@ -97,6 +98,7 @@ clone_repo() {
 clone_repo "$TRITON_ORG/triton-inference-server-server-das.git"            triton-inference-server-server-das
 clone_repo "$TRITON_ORG/triton-inference-server-onnxruntime-backend.git"    triton-inference-server-onnxruntime-backend
 clone_repo "$TRITON_ORG/triton-inference-server-migraphx-backend.git"       triton-inference-server-migraphx-backend
+clone_repo "$TRITON_ORG/triton-inference-server-pytorch-backend-das.git"    triton-inference-server-pytorch-backend-das
 
 mkdir -p "$PREFIX"
 
@@ -126,8 +128,6 @@ CMAKE_ARGS=(
   -DTRITON_ENABLE_ENSEMBLE=OFF
   -DCMAKE_INSTALL_PREFIX="$SERVER_PREFIX"
 )
-# third_party 仓库里每个依赖都是 DOWNLOAD_COMMAND ""，依赖 cache_core 中预置的
-# 源码 (repo-third-party-build/*/src/*)；必须使用 FETCHCONTENT_BASE_DIR=cache_core，
 # 并清掉旧 stamp/构建目录，让它按本次安装前缀重新 configure/build/install。
 if [ -d "$CACHE_CORE/repo-third-party-build" ]; then
   echo "[cache] reuse third-party source/build cache: $CACHE_CORE"
@@ -181,7 +181,6 @@ cd ../..
 # ---------- 2.4 pytorch backend ----------
 if [ -d "$SRC_ROOT/triton-inference-server-pytorch-backend-das" ]; then
   echo "----- build pytorch backend -----"
-  TORCH=/usr/local/python3.12/lib/python3.12/site-packages/torch
   cd triton-inference-server-pytorch-backend-das
   rm -rf build && mkdir build && cd build
   cmake .. \
@@ -190,17 +189,9 @@ if [ -d "$SRC_ROOT/triton-inference-server-pytorch-backend-das" ]; then
     -DUSE_HCU=ON \
     -DTRITON_ENABLE_GPU=ON \
     -DTRITON_ENABLE_STATS=ON \
-    -DTRITON_PYTORCH_ENABLE_TORCHTRT=OFF \
-    -DDTK_ARCHS="gfx906;gfx926;gfx928;gfx936;gfx938" \
-    -DTRITON_PYTORCH_INCLUDE_PATHS="$TORCH/include;$TORCH/include/torch/csrc/api/include" \
-    -DTRITON_PYTORCH_LIB_PATHS="$TORCH/lib" \
-    -DFETCHCONTENT_BASE_DIR="$SRC_ROOT/cache_pytorch" \
-    -DFETCHCONTENT_SOURCE_DIR_REPO-COMMON="$SRC_ROOT/triton-inference-server-common-das" \
-    -DFETCHCONTENT_SOURCE_DIR_REPO-CORE="$SRC_ROOT/triton-inference-server-core-das" \
-    -DFETCHCONTENT_SOURCE_DIR_REPO-BACKEND="$SRC_ROOT/triton-inference-server-backend-das" \
-    -DFETCHCONTENT_SOURCE_DIR_REPO-THIRD-PARTY="$CACHE_CORE/repo-third-party-src" \
-    -DFETCHCONTENT_SOURCE_DIR_GOOGLETEST="$CACHE_CORE/googletest-src" \
-    -DFETCHCONTENT_SOURCE_DIR_PYBIND11="$CACHE_CORE/pybind11-src" \
+    -DCMAKE_PREFIX_PATH="$PREFIX" \
+    -DTRITON_CORE_PATH="$PREFIX" \
+    -DTRITON_BACKEND_PATH="$PREFIX" \
     -DCMAKE_INSTALL_PREFIX="$PREFIX"
   make -j"$(nproc)"
   make install
@@ -208,6 +199,7 @@ if [ -d "$SRC_ROOT/triton-inference-server-pytorch-backend-das" ]; then
 else
   echo "[skip] pytorch backend source not found"
 fi
+
 
 # ============================================================
 # 3) Python 依赖（tritonserver 绑定 + tritonclient）
