@@ -7,6 +7,11 @@
 
 ---
 
+# 上游归属
+- 本仓库是面向 HCU 平台的 Triton Inference Server 适配测试套件，并非上游源码的完整镜像。
+- Modified by Hygon Information Technology Co., Ltd., 2026.
+---
+
 ## 一、目录结构
 
 ```
