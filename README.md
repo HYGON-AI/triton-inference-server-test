@@ -2,7 +2,7 @@
 
 在**海光 HCU**平台上运行与验证 Triton Inference Server（core + backend 移植版）的端到端测试套件，覆盖 **onnx** 与 **migraphx** 两个推理后端，包含模型加载、精度校验、批量性能、多请求合并（dynamic batching）等测试。
 
-- 制品仓库：`https://developer.sourcefind.cn/codes/OpenDAS/triton_inference_server_test.git`
+- 制品仓库：`https://github.com/HYGON-AI/triton-inference-server-test.git`
 - 依赖源码：core / backend / onnx_backend / migraphx_backend / server（均由 `build.sh` 拉取并编译）
 
 ---
