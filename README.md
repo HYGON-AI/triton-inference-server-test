@@ -87,7 +87,7 @@ docker exec -it triton_inference_server_ci bash
 export WORK_BASE=/home/ci
 
 # 1) 完整构建 (装依赖 + 编译 + 装 Python 包) —— 只需一次
-bash ${WORK_BASE}/triton-inference_server-test/build.sh ${WORK_BASE}
+bash ${WORK_BASE}/triton-inference-server-test/build.sh ${WORK_BASE} HYGON-AI
 
 # 2) 跑测试 (启动 server + HTTP/gRPC + C++/Python 客户端)
 cd ${WORK_BASE}/triton-inference-server-test
