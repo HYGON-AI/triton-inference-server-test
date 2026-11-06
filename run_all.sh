@@ -9,8 +9,8 @@ HOST_CI=$1         # 宿主机挂载点 (挂到容器 /home/ci)
 WORK_BASE=$2
 CONTAINER=triton_inference_server_ci
 IMAGE=harbor.sourcefind.cn:5443/hcu/admin/base/dtk:26.04-ubuntu22.04-mpi5.0-gcc11.4-cmake3.29-py3.12
-TEST_REPO=https://developer.sourcefind.cn/codes/OpenDAS/triton_inference_server_test.git
-TEST_DIR="$HOST_CI/triton_inference_server_test"
+TEST_REPO=https://github.com/HYGON-AI/triton-inference-server-test.git
+TEST_DIR="$HOST_CI/triton-inference-server-test"
 MODE="auto"
 [ "$1" = "--force" ] && MODE="force"
 [ "$1" = "--test-only" ] && MODE="test"
@@ -27,7 +27,7 @@ else
     echo "  未找到 test repo, 尝试 clone..."
     mkdir -p "$HOST_CI"
     cd "$HOST_CI"
-    if git clone "$TEST_REPO" triton_inference_server_test 2>/dev/null; then
+    if git clone "$TEST_REPO" triton-inference-server_test 2>/dev/null; then
         echo "  clone 成功"
     else
         echo "  [错误] 宿主机 git clone 失败. 请先配置凭据:"
@@ -74,14 +74,14 @@ fi
 
 if [ "$NEED_BUILD" = "1" ]; then
     echo "  运行 build.sh (完整编译 core/backends, 耗时较长)..."
-    docker exec "$CONTAINER" bash $WORK_BASE/triton_inference_server_test/build.sh $WORK_BASE HYGON-AI
+    docker exec "$CONTAINER" bash $WORK_BASE/triton-inference-server-test/build.sh $WORK_BASE HYGON-AI
 else
     echo "  跳过 build.sh (--test-only 或已构建)"
 fi
 
 # ---------- [4/5] 编译 server + 双通道测试 ----------
 echo "[4/5] build_server.sh test (server 编译 + HTTP/gRPC 端到端测试)"
-docker exec "$CONTAINER" bash $WORK_BASE/triton_inference_server_test/run_test.sh $WORK_BASE
+docker exec "$CONTAINER" bash $WORK_BASE/triton-inference-server-test/run_test.sh $WORK_BASE
 
 # ---------- [5/5] 运行确认 ----------
 echo "[5/5] 运行确认"
