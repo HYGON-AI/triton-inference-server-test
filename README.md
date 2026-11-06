@@ -7,10 +7,15 @@
 
 ---
 
+# 上游归属
+- 本仓库是面向 HCU 平台的 Triton Inference Server 适配测试套件，并非上游源码的完整镜像。
+- Modified by Hygon Information Technology Co., Ltd., 2026.
+---
+
 ## 一、目录结构
 
 ```
-triton_inference_server_test/
+triton-inference-server-test/
 ├── build.sh                     # 一键构建: 装依赖 + 编译 core/backends/server + 装 Python 包
 ├── run_all.sh                   # 宿主机一键编排: clone → 起容器 → build.sh → run_test.sh
 ├── run_test.sh                  # 容器内: 跑所有测试 (C++ + Python in-process)
@@ -82,10 +87,10 @@ docker exec -it triton_inference_server_ci bash
 export WORK_BASE=/home/ci
 
 # 1) 完整构建 (装依赖 + 编译 + 装 Python 包) —— 只需一次
-bash ${WORK_BASE}/triton_inference_server_test/build.sh ${WORK_BASE}
+bash ${WORK_BASE}/triton-inference_server-test/build.sh ${WORK_BASE}
 
 # 2) 跑测试 (启动 server + HTTP/gRPC + C++/Python 客户端)
-cd ${WORK_BASE}/triton_inference_server_test
+cd ${WORK_BASE}/triton-inference-server-test
 bash run_test.sh ${WORK_BASE}
 ```
 
