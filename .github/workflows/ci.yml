@@ -42,7 +42,9 @@ permissions:
 jobs:
   run_all:
     name: Build & end-to-end tests (run_all.sh)
-    runs-on: [self-hosted, ci]
+    runs-on:
+      group: ci-general
+      labels: [self-hosted, ci]
     timeout-minutes: 240
     env:
       MODE: ${{ github.event_name == 'workflow_dispatch' && inputs.mode || 'auto' }}
