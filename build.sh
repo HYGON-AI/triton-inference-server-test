@@ -89,6 +89,9 @@ clone_repo() {
   local url=$1 dir=$2
   if [ -d "$dir/.git" ]; then
     echo "[repo] reuse $dir"
+    if [ "${CI_UPDATE_DEPS:-0}" = 1 ]; then
+      git -C "$dir" pull --ff-only
+    fi
   else
     echo "[repo] clone $url -> $dir"
     git clone "$url" "$dir"
@@ -206,8 +209,19 @@ fi
 # ============================================================
 echo "===== 安装 Python 包 ====="
 TRITONSERVER_WHL=$(ls "$SERVER_PREFIX"/python/tritonserver*.whl "$CACHE_CORE"/repo-core-build/python/generic/wheel/dist/tritonserver*.whl 2>/dev/null | head -1)
-[ -n "$TRITONSERVER_WHL" ] && pip install --force-reinstall "$TRITONSERVER_WHL" || echo "[WARN] tritonserver wheel not found"
-[ -f "$SERVER_PREFIX"/python/tritonfrontend*.whl ] && pip install "$SERVER_PREFIX"/python/tritonfrontend*.whl || true
+if [ -z "$TRITONSERVER_WHL" ]; then
+  echo "[ERROR] tritonserver wheel not found" >&2
+  exit 1
+fi
+pip install --force-reinstall "$TRITONSERVER_WHL"
+TRITONFRONTEND_WHLS=("$SERVER_PREFIX"/python/tritonfrontend*.whl)
+if [ -f "${TRITONFRONTEND_WHLS[0]}" ]; then
+  if [ "${#TRITONFRONTEND_WHLS[@]}" -ne 1 ]; then
+    echo "[ERROR] multiple tritonfrontend wheels found; clean stale build artifacts first" >&2
+    exit 1
+  fi
+  pip install "${TRITONFRONTEND_WHLS[0]}"
+fi
 pip install "tritonclient[grpc]" -i https://pypi.tuna.tsinghua.edu.cn/simple
 
 echo ""

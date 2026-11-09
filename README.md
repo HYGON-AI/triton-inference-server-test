@@ -71,6 +71,25 @@ triton-inference-server-test/
 
 ## 三、快速开始
 
+### GitHub Actions CI
+
+CI 直接使用 Runner 的 `GITHUB_WORKSPACE`，不再复制源码，也不执行针对测试仓库的
+`git pull`。例如 nmz1 的测试源码目录是：
+
+```text
+/home/github/actions-runner-ci-nmz1/_work/triton-inference-server-test/triton-inference-server-test/
+```
+
+其父目录作为宿主机挂载点；容器内默认使用相同路径，可通过 `CI_WORK_BASE` 调整。
+其他节点自动使用各自的 Runner 工作目录，不需要修改节点编号。
+CI 默认容器名为 `triton_inference_server_ci_workspace`，与旧的源码副本容器分开；
+通过 `CI_CONTAINER` 指定已有容器时，其挂载路径和镜像必须与当前配置一致。
+
+`auto` 模式仅在编译产物仍存在、且构建标记与本次测试提交一致时复用构建；否则重新
+构建并更新已有依赖仓库。`force` 清理安装产物后重新构建，`test` 要求已有安装产物。
+缓存只位于当前节点，切换节点或 Runner 清理后不保证存在。任一测试命令失败会使
+CI 失败，各服务测试结束时清理自己启动的进程。
+
 ### 方式 A：宿主机一键编排（推荐）
 ```bash
 # 参数: <宿主机挂载点> <容器内 WORK_BASE>

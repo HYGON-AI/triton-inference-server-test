@@ -1,5 +1,8 @@
+#!/bin/bash
 # Copyright (c) 2026 Hygon Information Technology Co., Ltd.
 # SPDX-License-Identifier: BSD-3-Clause
+
+set -eo pipefail
 
 export WORK_BASE=$1
 export SCRIPT_PATH=$(dirname $(realpath "$0") )

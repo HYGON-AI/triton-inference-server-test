@@ -4,17 +4,18 @@
 # CI 流程参考仓库根目录的 run_all.sh 一键编排脚本：
 #   [2/5] 创建/启动挂载 HCU 设备的 DTK 容器
 #   [3/5] 无缓存时执行 build.sh 完整编译 core/backends
-#   [4/5] run_server.sh 编译并启动 server + run_test.sh 端到端测试
-#   [5/5] HTTP 健康检查
+#   [4/5] run_test.sh 执行服务端及客户端端到端测试
+#   [5/5] 汇总测试结果（服务由测试脚本退出时清理）
 # 运行环境要求 self-hosted runner：
 #   - labels 包含 self-hosted 和 ci；
 #   - 暴露 /dev/kfd、/dev/dri、/dev/mkfd 设备节点并挂载 /opt/hyhal；
 #   - 已安装 docker，可访问内部镜像仓库。
 # 以下仓库级 Variables 可在 GitHub 设置中按节点环境覆盖：
 #   CI_IMAGE       容器镜像（默认 run_all.sh 使用的 DTK 镜像）
-#   CI_HOST_MOUNT  宿主机 CI 挂载目录（默认当前 Runner 的 _work/ci/triton-inference-server-test）
-#   CI_WORK_BASE   容器内工作目录（默认与自动解析的宿主机 CI 挂载目录相同）
-#   CI_CONTAINER   容器名（默认 triton_inference_server_ci，复用已有容器保留编译缓存）
+#   CI_WORK_BASE   容器内工作目录（默认与 checkout 父目录相同）
+#   CI_CONTAINER   容器名（默认 triton_inference_server_ci_workspace，与旧复制目录容器分开）
+# 宿主机直接使用 GITHUB_WORKSPACE 的父目录，不复制或删除 checkout 源码。
+# 构建产物仅在节点上仍存在时可复用；不同节点或 Runner 清理后不保证缓存存在。
 
 name: CI
 
@@ -33,7 +34,7 @@ on:
         options: [auto, force, test]
 
 concurrency:
-  group: ci-${{ github.ref }}
+  group: triton-inference-server-test-workspace
   cancel-in-progress: false
 
 permissions:
@@ -49,9 +50,8 @@ jobs:
     env:
       MODE: ${{ github.event_name == 'workflow_dispatch' && inputs.mode || 'auto' }}
       IMAGE: ${{ vars.CI_IMAGE || 'harbor.sourcefind.cn:5443/hcu/admin/base/dtk:26.04-ubuntu22.04-mpi5.0-gcc11.4-cmake3.29-py3.12' }}
-      HOST_CI: ${{ vars.CI_HOST_MOUNT }}
       WORK_BASE: ${{ vars.CI_WORK_BASE }}
-      CONTAINER: ${{ vars.CI_CONTAINER || 'triton_inference_server_ci' }}
+      CONTAINER: ${{ vars.CI_CONTAINER || 'triton_inference_server_ci_workspace' }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -65,35 +65,36 @@ jobs:
           test -e /dev/kfd || { echo "Runner 必须暴露 /dev/kfd (HCU 设备节点)"; exit 1; }
           test -e /dev/dri || { echo "Runner 必须暴露 /dev/dri (HCU 设备节点)"; exit 1; }
 
-      - name: Prepare CI mount and sync repository copy
+      - name: Use Runner checkout workspace
         run: |
           set -euo pipefail
-          # 与其他仓库一致，从 RUNNER_TEMP 定位当前节点的 _work，避免写死 nmz 编号。
-          runner_work_root="$(cd -- "${RUNNER_TEMP}/.." && pwd)"
-          HOST_CI="${HOST_CI:-${runner_work_root}/ci/triton-inference-server-test}"
-          mkdir -p "$HOST_CI"
-          HOST_CI="$(cd -- "$HOST_CI" && pwd)"
+          TARGET="$(realpath -- "$GITHUB_WORKSPACE")"
+          HOST_CI="$(dirname -- "$TARGET")"
           WORK_BASE="${WORK_BASE:-$HOST_CI}"
-          # run_all.sh 约定仓库位于 "$HOST_CI/triton-inference-server-test"
-          TARGET="$HOST_CI/triton-inference-server-test"
-          source_dir="$(realpath -- "$GITHUB_WORKSPACE")"
-          target_dir="$(realpath -m -- "$TARGET")"
-          if [[ "$target_dir" == "$source_dir" || "$source_dir" == "$target_dir/"* || "$target_dir" == "$source_dir/"* ]]; then
-            echo "::error::CI 挂载目录与 checkout 源码目录重叠，请调整 CI_HOST_MOUNT。"
+          if [[ "$(basename -- "$TARGET")" != "triton-inference-server-test" || "$WORK_BASE" != /* || "$WORK_BASE" == / ]]; then
+            echo "::error::checkout 目录名或 CI_WORK_BASE 不符合测试脚本的目录约定。"
             exit 1
           fi
-          rm -rf "$TARGET"
-          cp -a "$GITHUB_WORKSPACE" "$TARGET/"
           echo "HOST_CI=$HOST_CI" >> "$GITHUB_ENV"
           echo "WORK_BASE=$WORK_BASE" >> "$GITHUB_ENV"
           echo "TARGET=$TARGET" >> "$GITHUB_ENV"
-          echo "Runner work root: $runner_work_root"
+          echo "Checkout: $TARGET"
           echo "Host CI mount: $HOST_CI -> container: $WORK_BASE"
 
       - name: Create/Start CI container
         run: |
           set -euo pipefail
-          if ! docker ps -a --format '{{.Names}}' | grep -qx "$CONTAINER"; then
+          if docker container inspect "$CONTAINER" >/dev/null 2>&1; then
+            mounts="$(docker inspect --format '{{range .Mounts}}{{printf "%s\t%s\n" .Source .Destination}}{{end}}' "$CONTAINER")"
+            if ! grep -Fxq -- "$(printf '%s\t%s' "$HOST_CI" "$WORK_BASE")" <<< "$mounts"; then
+              echo "::error::已有容器的工作目录挂载不同，请配置新的 CI_CONTAINER 或清理旧容器。"
+              exit 1
+            fi
+            if [[ "$(docker inspect --format '{{.Config.Image}}' "$CONTAINER")" != "$IMAGE" ]]; then
+              echo "::error::已有容器镜像不同，请配置新的 CI_CONTAINER 或清理旧容器。"
+              exit 1
+            fi
+          else
             if [ "$MODE" != "test" ]; then
               docker pull "$IMAGE"
             fi
@@ -104,29 +105,20 @@ jobs:
               -v "$HOST_CI":"$WORK_BASE" "$IMAGE" bash
           fi
           docker start "$CONTAINER" >/dev/null
-
-      - name: Force full rebuild cleanup (mode=force)
-        if: env.MODE == 'force'
-        run: |
-          set -euo pipefail
-          echo "mode=force: 清理容器内编译产物，触发 run_all.sh 重新执行 build.sh"
-          docker exec "$CONTAINER" rm -rf "$WORK_BASE/opt/triton-server"
-
-      - name: Run test-only without rebuild (mode=test)
-        if: env.MODE == 'test'
-        run: |
-          set -euo pipefail
-          if ! docker exec "$CONTAINER" test -f "$WORK_BASE/opt/triton-server/core/lib/libtritonserver.so"; then
-            echo "mode=test: 编译产物不存在，无法跳过 build.sh；请先运行 auto/force 模式"; exit 1
-          fi
+          echo "CI_CONTAINER_READY=true" >> "$GITHUB_ENV"
 
       - name: Run run_all.sh
         run: |
           set -euo pipefail
-          chmod +x "$TARGET/run_all.sh"
-          # $1 = 宿主机挂载点, $2 = 容器内工作目录；auto 模式下由 run_all.sh 自行判断是否复用编译产物
+          # GitHub checkout 已固定被测提交；run_all.sh 在 Actions 中不会再次 git pull。
           bash "$TARGET/run_all.sh" "$HOST_CI" "$WORK_BASE"
 
-      - name: Stop CI container
-        if: always()
-        run: docker stop "$CONTAINER" >/dev/null 2>&1 || true
+      - name: Restore checkout ownership and stop CI container
+        if: always() && env.CI_CONTAINER_READY == 'true'
+        run: |
+          set -uo pipefail
+          status=0
+          # 容器以 root 编译会在 checkout 内创建文件，恢复权限以便下次 checkout 清理。
+          docker exec --user 0 "$CONTAINER" chown -R "$(id -u):$(id -g)" "$WORK_BASE/triton-inference-server-test" || status=$?
+          docker stop "$CONTAINER" >/dev/null || status=$?
+          exit "$status"
