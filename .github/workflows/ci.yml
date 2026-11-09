@@ -1,0 +1,115 @@
+# Copyright (c) 2026 Hygon Information Technology Co., Ltd.
+# SPDX-License-Identifier: BSD-3-Clause
+#
+# CI 流程参考仓库根目录的 run_all.sh 一键编排脚本：
+#   [2/5] 创建/启动挂载 HCU 设备的 DTK 容器
+#   [3/5] 无缓存时执行 build.sh 完整编译 core/backends
+#   [4/5] run_server.sh 编译并启动 server + run_test.sh 端到端测试
+#   [5/5] HTTP 健康检查
+# 运行环境要求 self-hosted runner：
+#   - labels 包含 self-hosted 和 hcu；
+#   - 暴露 /dev/kfd、/dev/dri、/dev/mkfd 设备节点并挂载 /opt/hyhal；
+#   - 已安装 docker，可访问内部镜像仓库。
+# 以下仓库级 Variables 可在 GitHub 设置中按节点环境覆盖：
+#   CI_IMAGE       容器镜像（默认 run_all.sh 使用的 DTK 镜像）
+#   CI_HOST_MOUNT  宿主机 CI 挂载目录（默认 /home/ci）
+#   CI_WORK_BASE   容器内工作目录（默认 /home/ci）
+#   CI_CONTAINER   容器名（默认 triton_inference_server_ci，复用已有容器保留编译缓存）
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "构建模式 (auto / force / test)，语义参考 run_all.sh"
+        required: false
+        default: auto
+        type: choice
+        options: [auto, force, test]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  run_all:
+    name: Build & end-to-end tests (run_all.sh)
+    runs-on: [self-hosted, hcu]
+    timeout-minutes: 240
+    env:
+      MODE: ${{ github.event_name == 'workflow_dispatch' && inputs.mode || 'auto' }}
+      IMAGE: ${{ vars.CI_IMAGE || 'harbor.sourcefind.cn:5443/hcu/admin/base/dtk:26.04-ubuntu22.04-mpi5.0-gcc11.4-cmake3.29-py3.12' }}
+      HOST_CI: ${{ vars.CI_HOST_MOUNT || '/home/ci' }}
+      WORK_BASE: ${{ vars.CI_WORK_BASE || '/home/ci' }}
+      CONTAINER: ${{ vars.CI_CONTAINER || 'triton_inference_server_ci' }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Sanity-check runner (docker + HCU devices)
+        run: |
+          set -euo pipefail
+          docker version --format '{{.Server.Version}}'
+          test -e /dev/kfd || { echo "Runner 必须暴露 /dev/kfd (HCU 设备节点)"; exit 1; }
+          test -e /dev/dri || { echo "Runner 必须暴露 /dev/dri (HCU 设备节点)"; exit 1; }
+
+      - name: Prepare CI mount and sync repository copy
+        run: |
+          set -euo pipefail
+          mkdir -p "$HOST_CI"
+          # run_all.sh 约定仓库位于 "$HOST_CI/triton-inference-server-test"
+          TARGET="$HOST_CI/triton-inference-server-test"
+          rm -rf "$TARGET"
+          cp -a "$GITHUB_WORKSPACE" "$TARGET/"
+          echo "TARGET=$TARGET" >> "$GITHUB_ENV"
+
+      - name: Create/Start CI container
+        run: |
+          set -euo pipefail
+          if ! docker ps -a --format '{{.Names}}' | grep -qx "$CONTAINER"; then
+            if [ "$MODE" != "test" ]; then
+              docker pull "$IMAGE"
+            fi
+            docker run -itd --name "$CONTAINER" --privileged --shm-size=16g \
+              --device=/dev/kfd --device=/dev/dri --device=/dev/mkfd \
+              -v /opt/hyhal:/opt/hyhal:ro --group-add video --cap-add=SYS_PTRACE \
+              --security-opt seccomp=unconfined \
+              -v "$HOST_CI":"$WORK_BASE" "$IMAGE" bash
+          fi
+          docker start "$CONTAINER" >/dev/null
+
+      - name: Force full rebuild cleanup (mode=force)
+        if: env.MODE == 'force'
+        run: |
+          set -euo pipefail
+          echo "mode=force: 清理容器内编译产物，触发 run_all.sh 重新执行 build.sh"
+          docker exec "$CONTAINER" rm -rf "$WORK_BASE/opt/triton-server"
+
+      - name: Run test-only without rebuild (mode=test)
+        if: env.MODE == 'test'
+        run: |
+          set -euo pipefail
+          if ! docker exec "$CONTAINER" test -f "$WORK_BASE/opt/triton-server/core/lib/libtritonserver.so"; then
+            echo "mode=test: 编译产物不存在，无法跳过 build.sh；请先运行 auto/force 模式"; exit 1
+          fi
+
+      - name: Run run_all.sh
+        run: |
+          set -euo pipefail
+          chmod +x "$TARGET/run_all.sh"
+          # $1 = 宿主机挂载点, $2 = 容器内工作目录；auto 模式下由 run_all.sh 自行判断是否复用编译产物
+          bash "$TARGET/run_all.sh" "$HOST_CI" "$WORK_BASE"
+
+      - name: Stop CI container
+        if: always()
+        run: docker stop "$CONTAINER" >/dev/null 2>&1 || true
