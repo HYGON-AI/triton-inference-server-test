@@ -22,7 +22,7 @@ echo "TRITON_ORG:$TRITON_ORG"
 # tracing 依赖 OpenTelemetry（多层 github 下载），默认关闭；需要时 TRITON_ENABLE_TRACING=ON
 TRITON_ENABLE_TRACING=${TRITON_ENABLE_TRACING:-OFF}
 SRC_ROOT=${WORK_BASE}/triton_inference_server
-PREFIX=${WORK_BASE}/opt/triton-server
+PREFIX=${CI_INSTALL_PREFIX:-${WORK_BASE}/opt/triton-server}
 SERVER_PREFIX=${PREFIX}
 BACKEND_PREFIX=${PREFIX}
 CACHE_CORE=${SRC_ROOT}/cache_core
@@ -35,6 +35,9 @@ cd "$WORK_BASE"
 # 1) 依赖安装（与旧脚本一致；已安装的会跳过）
 # ============================================================
 echo "===== [1/2] 依赖安装 ====="
+if [ "${CI_SKIP_DEPS:-0}" = 1 ]; then
+  echo "[deps] use prevalidated ARC image dependencies"
+else
 
 # migraphx
 if [ ! -e /opt/dtk/lib/libmigraphx_c.so.3 ]; then
@@ -75,6 +78,7 @@ if [ ! -e /usr/local/lib/libboost_json.a ]; then
   curl -L -o boost_1_82_0.tar.gz http://42.228.13.241:18000/thirdparty/triton_inference_server/r26.09/boost_1_82_0.tar.gz
   tar -xvf boost_1_82_0.tar.gz
   (cd boost-1.82.0 && ./bootstrap.sh --prefix=/usr/local && ./b2 install -j"$(nproc)" && ldconfig)
+fi
 fi
 
 # ============================================================
@@ -131,6 +135,9 @@ CMAKE_ARGS=(
   -DTRITON_ENABLE_ENSEMBLE=OFF
   -DCMAKE_INSTALL_PREFIX="$SERVER_PREFIX"
 )
+if [ -n "${AMDGPU_TARGETS:-}" ]; then
+  CMAKE_ARGS+=(-DCMAKE_HIP_ARCHITECTURES="$AMDGPU_TARGETS")
+fi
 # 并清掉旧 stamp/构建目录，让它按本次安装前缀重新 configure/build/install。
 if [ -d "$CACHE_CORE/repo-third-party-build" ]; then
   echo "[cache] reuse third-party source/build cache: $CACHE_CORE"
@@ -213,16 +220,20 @@ if [ -z "$TRITONSERVER_WHL" ]; then
   echo "[ERROR] tritonserver wheel not found" >&2
   exit 1
 fi
-pip install --force-reinstall "$TRITONSERVER_WHL"
+mkdir -p "$SERVER_PREFIX/python"
+if [ "$(dirname "$TRITONSERVER_WHL")" != "$SERVER_PREFIX/python" ]; then
+  cp "$TRITONSERVER_WHL" "$SERVER_PREFIX/python/"
+fi
+python3 -m pip install --force-reinstall "$TRITONSERVER_WHL"
 TRITONFRONTEND_WHLS=("$SERVER_PREFIX"/python/tritonfrontend*.whl)
 if [ -f "${TRITONFRONTEND_WHLS[0]}" ]; then
   if [ "${#TRITONFRONTEND_WHLS[@]}" -ne 1 ]; then
     echo "[ERROR] multiple tritonfrontend wheels found; clean stale build artifacts first" >&2
     exit 1
   fi
-  pip install "${TRITONFRONTEND_WHLS[0]}"
+  python3 -m pip install "${TRITONFRONTEND_WHLS[0]}"
 fi
-pip install "tritonclient[grpc]" -i https://pypi.tuna.tsinghua.edu.cn/simple
+python3 -m pip install "tritonclient[grpc]" -i https://pypi.tuna.tsinghua.edu.cn/simple
 
 echo ""
 echo "[OK] build 完成"

@@ -73,22 +73,47 @@ triton-inference-server-test/
 
 ### GitHub Actions CI
 
-CI 直接使用 Runner 的 `GITHUB_WORKSPACE`，不再复制源码，也不执行针对测试仓库的
-`git pull`。例如 nmz1 的测试源码目录是：
+CI 使用 K8s + ARC 调度，直接在作业容器中执行脚本，无需宿主机 Docker：
+
+| 作业 | runs-on | 工作内容 |
+| --- | --- | --- |
+| build | `hygon-build` | 编译 server、ONNX Runtime、MIGraphX 和 PyTorch backend，发布安装产物 |
+| test | `hygon-bw1100-1card` | 使用 build 产物执行 HTTP/gRPC、C++/Python 和模型推理测试 |
+
+现有四个 GPU 模型都指定 `gpus: [0]`，PyTorch 加法模型使用 CPU，因此只申请一张
+HCU 卡。8 个并发请求在同一张卡执行，不要求 8 张卡。batch 128 仍需足够显存，
+实际是否跑通以单卡作业结果为准。
+
+使用前，在仓库 Settings → Secrets and variables → Actions → Variables 创建
+`CI_IMAGE`，填写包含完整 HCU 构建和运行依赖的镜像地址，建议固定 digest。
+手动 Run workflow 也可通过 `ci_image` 输入覆盖镜像；build 和 test 始终使用同一配置。
+没有提供镜像时不会回退到之前缺少 Torch 的 DTK 基础镜像。
+
+当前脚本对应 Python 3.12、HCU/HIP Torch 2.7.1、匹配的 HCU ONNX Runtime 1.19.2、
+`numpy<2`、DTK/MIGraphX，以及 CMake、Boost、protobuf、rapidjson 等构建依赖。
+不能只替换成任意版本的 Torch 镜像；当前 ONNX Runtime wheel 对应 DTK 26.04 / Torch 2.7.1。
+CI 在构建前检查框架类型和版本，跳过 `build.sh` 中自动安装系统/框架依赖的步骤，
+并约束后续 pip 安装，避免自动从 PyPI 替换成 CUDA Torch。
+若构建节点无 GPU、编译器需要显式架构，可设置 `CI_HIP_ARCHITECTURES` 为测试卡
+对应的 HIP 架构（或由镜像提供 `AMDGPU_TARGETS`），不要沿用其他型号的架构值。
+
+ARC 平台需在两类作业容器内挂载同一份 `/ci_public` 共享存储，并为单卡作业分配
+HCU 设备；私有镜像拉取权限由平台配置。产物和日志位于：
 
 ```text
-/home/github/actions-runner-ci-nmz1/_work/triton-inference-server-test/triton-inference-server-test/
+/ci_public/triton-inference-server-test/runs/<run-id>-<build-attempt>/
 ```
 
-其父目录作为宿主机挂载点；容器内默认使用相同路径，可通过 `CI_WORK_BASE` 调整。
-其他节点自动使用各自的 Runner 工作目录，不需要修改节点编号。
-CI 默认容器名为 `triton_inference_server_ci_workspace`，与旧的源码副本容器分开；
-通过 `CI_CONTAINER` 指定已有容器时，其挂载路径和镜像必须与当前配置一致。
+测试作业通过 build 输出取得此次安装目录，核对测试提交和文件校验和，并安装同次
+构建的 Python bindings。两端使用相同绝对安装路径，避免原生库引用编译节点临时目录。
+仅重跑失败的测试作业仍使用此前成功的 build 产物；平台需保留这些产物至重跑完成，
+历史目录由平台统一安排清理，不能视作永久缓存。
 
-`auto` 模式仅在编译产物仍存在、且构建标记与本次测试提交一致时复用构建；否则重新
-构建并更新已有依赖仓库。`force` 清理安装产物后重新构建，`test` 要求已有安装产物。
-缓存只位于当前节点，切换节点或 Runner 清理后不保证存在。任一测试命令失败会使
-CI 失败，各服务测试结束时清理自己启动的进程。
+测试仓库直接 checkout 本次提交，不复制源码，也不执行 `git pull`。依赖仓库由
+`build.sh` 拉取；若依赖仓库为私有，需要额外设置能只读访问这些仓库的
+`CI_REPO_TOKEN` Actions secret，当前仓库的默认 `GITHUB_TOKEN` 不能代替跨仓库授权。
+任一编译或测试失败都会使 CI 失败，各服务测试结束时清理自己启动的进程。
+以下 `run_all.sh` 的 Docker 模式保留供手动使用，与 ARC 作业分开。
 
 ### 方式 A：宿主机一键编排（推荐）
 ```bash

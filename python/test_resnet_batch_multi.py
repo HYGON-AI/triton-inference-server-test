@@ -14,7 +14,7 @@
 默认: ./model_repo .../backends samples/resnet_input.bin 128 5 resnet50_onnx fp16 8
 含义: 总 batch 128 拆成 8 个并发请求 (每请求 16), 由 dynamic batcher 合并。
 """
-import sys, os, time, gc, concurrent.futures
+import sys, os, time, gc, concurrent.futures, traceback
 import numpy as np
 from triton_compat import enable_global_symbols
 enable_global_symbols()   # 让 libtritonserver 符号全局可见 (替代 LD_PRELOAD)
@@ -46,6 +46,7 @@ def main():
         log_verbose=0, exit_timeout=5,
     )
     server.start(wait_until_ready=True)
+    succeeded = False
     try:
         model = server.model(model_name)
         base = np.fromfile(input_bin, dtype=np.float16).reshape(1, 3, 224, 224).astype(dtype)
@@ -78,6 +79,8 @@ def main():
         print(f"  平均每轮延迟: {dt/iters*1000:.1f} ms")
         print(f"  吞吐量: {throughput:.1f} samples/s ({throughput/1000:.2f} K samples/s)")
         print(f"  各请求输出 batch 正确: {shapes_ok}")
+        if not shapes_ok:
+            raise RuntimeError("Concurrent inference returned an unexpected batch size")
 
         pred = last[0][0].astype(np.float32)
         top5 = np.argsort(pred)[::-1][:5]
@@ -90,6 +93,9 @@ def main():
         print(">>>success inference:resnet")
 
         pool.shutdown(wait=False)
+        succeeded = True
+    except Exception:
+        traceback.print_exc()
     finally:
         try:
             gc.collect()
@@ -99,7 +105,7 @@ def main():
             print(f"(server.stop 异常, 忽略: {str(e)[:60]})")
         # in-process server 关闭时偶发崩溃, 结果已输出, 干净退出
         sys.stdout.flush()
-        os._exit(0)
+        os._exit(0 if succeeded else 1)
 
 
 if __name__ == "__main__":

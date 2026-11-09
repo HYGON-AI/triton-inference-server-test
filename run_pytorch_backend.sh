@@ -15,7 +15,7 @@ set -eo pipefail
 cd ${WORK_BASE}/triton-inference-server-test || exit 1
 
 P=${WORK_BASE}/opt/triton-server
-TORCH=/usr/local/python3.12/lib/python3.12/site-packages/torch
+TORCH=$(python3 -c 'from importlib.metadata import distribution; print(distribution("torch").locate_file("torch"))')
 HTTP_PORT=8020
 GRPC_PORT=8021
 LOG=/tmp/triton_pytorch.log

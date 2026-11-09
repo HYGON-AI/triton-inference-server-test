@@ -8,3 +8,8 @@ export LD_LIBRARY_PATH=${WORK_BASE}/opt/triton-server/lib:/opt/dtk/lib:/opt/hyha
 
 export CMAKE_PREFIX_PATH=/opt/dtk/hip:/opt/dtk:${CMAKE_PREFIX_PATH}
 
+# Resolve Torch from the active Python, including images using a virtualenv.
+if TORCH_LIB=$(python3 -c 'from importlib.metadata import distribution; print(distribution("torch").locate_file("torch/lib"))' 2>/dev/null); then
+    export LD_LIBRARY_PATH="$TORCH_LIB:$LD_LIBRARY_PATH"
+fi
+

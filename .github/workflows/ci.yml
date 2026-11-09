@@ -1,21 +1,5 @@
 # Copyright (c) 2026 Hygon Information Technology Co., Ltd.
 # SPDX-License-Identifier: BSD-3-Clause
-#
-# CI 流程参考仓库根目录的 run_all.sh 一键编排脚本：
-#   [2/5] 创建/启动挂载 HCU 设备的 DTK 容器
-#   [3/5] 无缓存时执行 build.sh 完整编译 core/backends
-#   [4/5] run_test.sh 执行服务端及客户端端到端测试
-#   [5/5] 汇总测试结果（服务由测试脚本退出时清理）
-# 运行环境要求 self-hosted runner：
-#   - labels 包含 self-hosted 和 ci；
-#   - 暴露 /dev/kfd、/dev/dri、/dev/mkfd 设备节点并挂载 /opt/hyhal；
-#   - 已安装 docker，可访问内部镜像仓库。
-# 以下仓库级 Variables 可在 GitHub 设置中按节点环境覆盖：
-#   CI_IMAGE       容器镜像（默认 run_all.sh 使用的 DTK 镜像）
-#   CI_WORK_BASE   容器内工作目录（默认与 checkout 父目录相同）
-#   CI_CONTAINER   容器名（默认 triton_inference_server_ci_workspace，与旧复制目录容器分开）
-# 宿主机直接使用 GITHUB_WORKSPACE 的父目录，不复制或删除 checkout 源码。
-# 构建产物仅在节点上仍存在时可复用；不同节点或 Runner 清理后不保证缓存存在。
 
 name: CI
 
@@ -26,99 +10,68 @@ on:
     branches: [main]
   workflow_dispatch:
     inputs:
-      mode:
-        description: "构建模式 (auto / force / test)，语义参考 run_all.sh"
+      ci_image:
+        description: HCU image (overrides the CI_IMAGE repository variable)
         required: false
-        default: auto
-        type: choice
-        options: [auto, force, test]
-
-concurrency:
-  group: triton-inference-server-test-workspace
-  cancel-in-progress: false
+        type: string
 
 permissions:
   contents: read
 
+concurrency:
+  group: triton-test-arc-${{ github.ref }}
+  cancel-in-progress: false
+
+defaults:
+  run:
+    shell: bash
+
+# CI_IMAGE must contain matching HCU build/runtime dependencies.
+# ARC must mount /ci_public as shared storage in both job containers.
 jobs:
-  run_all:
-    name: Build & end-to-end tests (run_all.sh)
-    runs-on:
-      group: ci-general
-      labels: [self-hosted, ci]
+  build:
+    name: Build Triton and backends (ARC)
+    runs-on: hygon-build
     timeout-minutes: 240
+    container:
+      image: ${{ inputs.ci_image || vars.CI_IMAGE }}
+    outputs:
+      artifact_dir: ${{ steps.build.outputs.artifact_dir }}
     env:
-      MODE: ${{ github.event_name == 'workflow_dispatch' && inputs.mode || 'auto' }}
-      IMAGE: ${{ vars.CI_IMAGE || 'harbor.sourcefind.cn:5443/hcu/admin/base/dtk:26.04-ubuntu22.04-mpi5.0-gcc11.4-cmake3.29-py3.12' }}
-      WORK_BASE: ${{ vars.CI_WORK_BASE }}
-      CONTAINER: ${{ vars.CI_CONTAINER || 'triton_inference_server_ci_workspace' }}
+      CI_HIP_ARCHITECTURES: ${{ vars.CI_HIP_ARCHITECTURES }}
+      CI_REPO_TOKEN: ${{ secrets.CI_REPO_TOKEN }}
     steps:
-      - name: Checkout repository
+      - name: Checkout tested commit
         uses: actions/checkout@v4
         with:
-          fetch-depth: 1
+          persist-credentials: false
 
-      - name: Sanity-check runner (docker + HCU devices)
-        run: |
-          set -euo pipefail
-          docker version --format '{{.Server.Version}}'
-          test -e /dev/kfd || { echo "Runner 必须暴露 /dev/kfd (HCU 设备节点)"; exit 1; }
-          test -e /dev/dri || { echo "Runner 必须暴露 /dev/dri (HCU 设备节点)"; exit 1; }
+      - name: Build and publish install tree
+        id: build
+        run: bash .github/scripts/arc-ci.sh build
 
-      - name: Use Runner checkout workspace
-        run: |
-          set -euo pipefail
-          TARGET="$(realpath -- "$GITHUB_WORKSPACE")"
-          HOST_CI="$(dirname -- "$TARGET")"
-          WORK_BASE="${WORK_BASE:-$HOST_CI}"
-          if [[ "$(basename -- "$TARGET")" != "triton-inference-server-test" || "$WORK_BASE" != /* || "$WORK_BASE" == / ]]; then
-            echo "::error::checkout 目录名或 CI_WORK_BASE 不符合测试脚本的目录约定。"
-            exit 1
-          fi
-          echo "HOST_CI=$HOST_CI" >> "$GITHUB_ENV"
-          echo "WORK_BASE=$WORK_BASE" >> "$GITHUB_ENV"
-          echo "TARGET=$TARGET" >> "$GITHUB_ENV"
-          echo "Checkout: $TARGET"
-          echo "Host CI mount: $HOST_CI -> container: $WORK_BASE"
+      - name: Save build log
+        if: always()
+        run: bash .github/scripts/arc-ci.sh save-build-log
 
-      - name: Create/Start CI container
-        run: |
-          set -euo pipefail
-          if docker container inspect "$CONTAINER" >/dev/null 2>&1; then
-            mounts="$(docker inspect --format '{{range .Mounts}}{{printf "%s\t%s\n" .Source .Destination}}{{end}}' "$CONTAINER")"
-            if ! grep -Fxq -- "$(printf '%s\t%s' "$HOST_CI" "$WORK_BASE")" <<< "$mounts"; then
-              echo "::error::已有容器的工作目录挂载不同，请配置新的 CI_CONTAINER 或清理旧容器。"
-              exit 1
-            fi
-            if [[ "$(docker inspect --format '{{.Config.Image}}' "$CONTAINER")" != "$IMAGE" ]]; then
-              echo "::error::已有容器镜像不同，请配置新的 CI_CONTAINER 或清理旧容器。"
-              exit 1
-            fi
-          else
-            if [ "$MODE" != "test" ]; then
-              docker pull "$IMAGE"
-            fi
-            docker run -itd --name "$CONTAINER" --privileged --shm-size=16g \
-              --device=/dev/kfd --device=/dev/dri --device=/dev/mkfd \
-              -v /opt/hyhal:/opt/hyhal:ro --group-add video --cap-add=SYS_PTRACE \
-              --security-opt seccomp=unconfined \
-              -v "$HOST_CI":"$WORK_BASE" "$IMAGE" bash
-          fi
-          docker start "$CONTAINER" >/dev/null
-          echo "CI_CONTAINER_READY=true" >> "$GITHUB_ENV"
+  test:
+    name: Single-HCU integration tests (ARC)
+    needs: build
+    runs-on: hygon-bw1100-1card
+    timeout-minutes: 180
+    container:
+      image: ${{ inputs.ci_image || vars.CI_IMAGE }}
+    env:
+      CI_ARTIFACT_DIR: ${{ needs.build.outputs.artifact_dir }}
+    steps:
+      - name: Checkout tested commit
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
-      - name: Run run_all.sh
-        run: |
-          set -euo pipefail
-          # GitHub checkout 已固定被测提交；run_all.sh 在 Actions 中不会再次 git pull。
-          bash "$TARGET/run_all.sh" "$HOST_CI" "$WORK_BASE"
+      - name: Install published bindings and run tests
+        run: bash .github/scripts/arc-ci.sh test
 
-      - name: Restore checkout ownership and stop CI container
-        if: always() && env.CI_CONTAINER_READY == 'true'
-        run: |
-          set -uo pipefail
-          status=0
-          # 容器以 root 编译会在 checkout 内创建文件，恢复权限以便下次 checkout 清理。
-          docker exec --user 0 "$CONTAINER" chown -R "$(id -u):$(id -g)" "$WORK_BASE/triton-inference-server-test" || status=$?
-          docker stop "$CONTAINER" >/dev/null || status=$?
-          exit "$status"
+      - name: Save test logs
+        if: always()
+        run: bash .github/scripts/arc-ci.sh save-test-logs
