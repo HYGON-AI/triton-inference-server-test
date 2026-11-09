@@ -12,8 +12,8 @@ IMAGE=harbor.sourcefind.cn:5443/hcu/admin/base/dtk:26.04-ubuntu22.04-mpi5.0-gcc1
 TEST_REPO=https://github.com/HYGON-AI/triton-inference-server-test.git
 TEST_DIR="$HOST_CI/triton-inference-server-test"
 MODE="auto"
-[ "$1" = "--force" ] && MODE="force"
-[ "$1" = "--test-only" ] && MODE="test"
+[ "$3" = "--force" ] && MODE="force"
+[ "$3" = "--test-only" ] && MODE="test"
 
 echo "=========================================="
 echo " 宿主机一键编排 (模式: $MODE)"
