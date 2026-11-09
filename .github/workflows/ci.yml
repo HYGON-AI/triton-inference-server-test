@@ -7,7 +7,7 @@
 #   [4/5] run_server.sh 编译并启动 server + run_test.sh 端到端测试
 #   [5/5] HTTP 健康检查
 # 运行环境要求 self-hosted runner：
-#   - labels 包含 self-hosted 和 hcu；
+#   - labels 包含 self-hosted 和 ci；
 #   - 暴露 /dev/kfd、/dev/dri、/dev/mkfd 设备节点并挂载 /opt/hyhal；
 #   - 已安装 docker，可访问内部镜像仓库。
 # 以下仓库级 Variables 可在 GitHub 设置中按节点环境覆盖：
@@ -42,7 +42,7 @@ permissions:
 jobs:
   run_all:
     name: Build & end-to-end tests (run_all.sh)
-    runs-on: [self-hosted, hcu]
+    runs-on: [self-hosted, ci]
     timeout-minutes: 240
     env:
       MODE: ${{ github.event_name == 'workflow_dispatch' && inputs.mode || 'auto' }}
