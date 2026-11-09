@@ -12,8 +12,8 @@
 #   - 已安装 docker，可访问内部镜像仓库。
 # 以下仓库级 Variables 可在 GitHub 设置中按节点环境覆盖：
 #   CI_IMAGE       容器镜像（默认 run_all.sh 使用的 DTK 镜像）
-#   CI_HOST_MOUNT  宿主机 CI 挂载目录（默认 /home/ci）
-#   CI_WORK_BASE   容器内工作目录（默认 /home/ci）
+#   CI_HOST_MOUNT  宿主机 CI 挂载目录（默认当前 Runner 的 _work/ci/triton-inference-server-test）
+#   CI_WORK_BASE   容器内工作目录（默认与自动解析的宿主机 CI 挂载目录相同）
 #   CI_CONTAINER   容器名（默认 triton_inference_server_ci，复用已有容器保留编译缓存）
 
 name: CI
@@ -49,8 +49,8 @@ jobs:
     env:
       MODE: ${{ github.event_name == 'workflow_dispatch' && inputs.mode || 'auto' }}
       IMAGE: ${{ vars.CI_IMAGE || 'harbor.sourcefind.cn:5443/hcu/admin/base/dtk:26.04-ubuntu22.04-mpi5.0-gcc11.4-cmake3.29-py3.12' }}
-      HOST_CI: ${{ vars.CI_HOST_MOUNT || '/home/ci' }}
-      WORK_BASE: ${{ vars.CI_WORK_BASE || '/home/ci' }}
+      HOST_CI: ${{ vars.CI_HOST_MOUNT }}
+      WORK_BASE: ${{ vars.CI_WORK_BASE }}
       CONTAINER: ${{ vars.CI_CONTAINER || 'triton_inference_server_ci' }}
     steps:
       - name: Checkout repository
@@ -68,12 +68,27 @@ jobs:
       - name: Prepare CI mount and sync repository copy
         run: |
           set -euo pipefail
+          # 与其他仓库一致，从 RUNNER_TEMP 定位当前节点的 _work，避免写死 nmz 编号。
+          runner_work_root="$(cd -- "${RUNNER_TEMP}/.." && pwd)"
+          HOST_CI="${HOST_CI:-${runner_work_root}/ci/triton-inference-server-test}"
           mkdir -p "$HOST_CI"
+          HOST_CI="$(cd -- "$HOST_CI" && pwd)"
+          WORK_BASE="${WORK_BASE:-$HOST_CI}"
           # run_all.sh 约定仓库位于 "$HOST_CI/triton-inference-server-test"
           TARGET="$HOST_CI/triton-inference-server-test"
+          source_dir="$(realpath -- "$GITHUB_WORKSPACE")"
+          target_dir="$(realpath -m -- "$TARGET")"
+          if [[ "$target_dir" == "$source_dir" || "$source_dir" == "$target_dir/"* || "$target_dir" == "$source_dir/"* ]]; then
+            echo "::error::CI 挂载目录与 checkout 源码目录重叠，请调整 CI_HOST_MOUNT。"
+            exit 1
+          fi
           rm -rf "$TARGET"
           cp -a "$GITHUB_WORKSPACE" "$TARGET/"
+          echo "HOST_CI=$HOST_CI" >> "$GITHUB_ENV"
+          echo "WORK_BASE=$WORK_BASE" >> "$GITHUB_ENV"
           echo "TARGET=$TARGET" >> "$GITHUB_ENV"
+          echo "Runner work root: $runner_work_root"
+          echo "Host CI mount: $HOST_CI -> container: $WORK_BASE"
 
       - name: Create/Start CI container
         run: |
