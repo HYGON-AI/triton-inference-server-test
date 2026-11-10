@@ -195,6 +195,7 @@ if [ -d "$SRC_ROOT/triton-inference-server-pytorch-backend-das" ]; then
   rm -rf build && mkdir build && cd build
   cmake .. \
     -DCMAKE_BUILD_TYPE=Release \
+    -DTRITON_PYTORCH_ENABLE_PT2=OFF \
     -DCMAKE_CXX_COMPILER=/opt/dtk/bin/hipcc \
     -DUSE_HCU=ON \
     -DTRITON_ENABLE_GPU=ON \

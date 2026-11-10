@@ -50,8 +50,8 @@ case "${1:-}" in
             targets="${AMDGPU_TARGETS//;/ }"
             read -r -a architectures <<< "${targets//,/ }"
             for architecture in "${architectures[@]}"; do
-                # All backend CMake projects use hipcc as their C++ compiler.
-                export CXXFLAGS="${CXXFLAGS:-} --offload-arch=$architecture"
+                # Scope GPU architecture flags to hipcc; third-party projects may use GCC.
+                export HIPCC_COMPILE_FLAGS_APPEND="${HIPCC_COMPILE_FLAGS_APPEND:-} --offload-arch=$architecture"
             done
         fi
         echo "HIP compilation targets: ${AMDGPU_TARGETS:-image/compiler default}"
