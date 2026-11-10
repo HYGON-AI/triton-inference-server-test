@@ -30,6 +30,9 @@ prepare_image() {
     source "$repo_root/env.sh"
     set -u
     python3 "$repo_root/.github/scripts/arc_runtime.py" check-image
+    local ort_capi
+    ort_capi="$(python3 "$repo_root/.github/scripts/arc_runtime.py" prepare-onnx-runtime)"
+    export LD_LIBRARY_PATH="$ort_capi:${LD_LIBRARY_PATH:-}"
 }
 
 case "${1:-}" in
