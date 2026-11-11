@@ -58,6 +58,7 @@ case "${1:-}" in
             done
         fi
         echo "HIP compilation targets: ${AMDGPU_TARGETS:-image/compiler default}"
+        bash "$repo_root/.github/scripts/check-return-diagnostics.sh"
         export CI_SKIP_DEPS=1 CI_UPDATE_DEPS=1
         # An identical absolute prefix on both pods preserves native RPATHs.
         export CI_INSTALL_PREFIX="$run_dir/install"

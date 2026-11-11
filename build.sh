@@ -116,7 +116,7 @@ rm -rf build && mkdir build && cd build
 
 CMAKE_ARGS=(
   ..
-  -DCMAKE_CXX_COMPILER=/opt/dtk/bin/hipcc
+  -DCMAKE_CXX_COMPILER="${CI_HIP_CXX_COMPILER:-/opt/dtk/bin/hipcc}"
   -DUSE_HCU=ON
   -DTRITON_REPO_ORGANIZATION="$TRITON_ORG"
   -DTRITON_ENABLE_GPU=ON
@@ -162,7 +162,7 @@ echo "----- build onnxruntime backend -----"
 cd triton-inference-server-onnxruntime-backend
 rm -rf build && mkdir build && cd build
 cmake .. \
-  -DCMAKE_CXX_COMPILER=/opt/dtk/bin/hipcc \
+  -DCMAKE_CXX_COMPILER="${CI_HIP_CXX_COMPILER:-/opt/dtk/bin/hipcc}" \
   -DDTK_PATH=/opt/dtk \
   -DCMAKE_PREFIX_PATH=/opt/dtk \
   -DTRITON_CORE_PATH="$SERVER_PREFIX" \
@@ -177,7 +177,7 @@ echo "----- build migraphx backend -----"
 cd triton-inference-server-migraphx-backend
 rm -rf build && mkdir build && cd build
 cmake .. \
-  -DCMAKE_CXX_COMPILER=/opt/dtk/bin/hipcc \
+  -DCMAKE_CXX_COMPILER="${CI_HIP_CXX_COMPILER:-/opt/dtk/bin/hipcc}" \
   -DDTK_PATH=/opt/dtk \
   -DCMAKE_PREFIX_PATH=/opt/dtk \
   -DTRITON_CORE_PATH="$SERVER_PREFIX" \
@@ -196,7 +196,7 @@ if [ -d "$SRC_ROOT/triton-inference-server-pytorch-backend-das" ]; then
   cmake .. \
     -DCMAKE_BUILD_TYPE=Release \
     -DTRITON_PYTORCH_ENABLE_PT2=OFF \
-    -DCMAKE_CXX_COMPILER=/opt/dtk/bin/hipcc \
+    -DCMAKE_CXX_COMPILER="${CI_HIP_CXX_COMPILER:-/opt/dtk/bin/hipcc}" \
     -DUSE_HCU=ON \
     -DTRITON_ENABLE_GPU=ON \
     -DTRITON_ENABLE_STATS=ON \
