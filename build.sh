@@ -29,20 +29,20 @@ CACHE_CORE=${SRC_ROOT}/cache_core
 
 set -e
 
-# CMake's HIP language must use resource headers from the selected frontend,
-# including during compiler ABI probes. DTK otherwise defaults to DCC headers.
-HIP_CMAKE_ARGS=()
+# ExternalProject starts fresh CMake processes. An inherited toolchain keeps
+# the HIP frontend and its resource headers paired in every configure/probe.
 if [ -n "${HIPCXX:-}" ]; then
   HIP_RESOURCE_DIR=$("$HIPCXX" -print-resource-dir)
-  HIP_CMAKE_ARGS=(
-    -DCMAKE_HIP_COMPILER="$HIPCXX"
-    -DHIP_CXX_COMPILER="$HIPCXX"
-    -DHIP_CLANG_INCLUDE_PATH="$HIP_RESOURCE_DIR/include"
-    -DCMAKE_TRY_COMPILE_PLATFORM_VARIABLES=HIP_CLANG_INCLUDE_PATH
-  )
+  export CMAKE_TOOLCHAIN_FILE="$WORK_BASE/.ci-hcu-toolchain.cmake"
+  cat > "$CMAKE_TOOLCHAIN_FILE" <<EOF
+set(CMAKE_HIP_COMPILER "$HIPCXX" CACHE FILEPATH "")
+set(HIP_CXX_COMPILER "$HIPCXX" CACHE FILEPATH "")
+set(HIP_CLANG_INCLUDE_PATH "$HIP_RESOURCE_DIR/include" CACHE PATH "")
+list(APPEND CMAKE_TRY_COMPILE_PLATFORM_VARIABLES HIP_CLANG_INCLUDE_PATH)
+EOF
   if [ -n "${AMDGPU_TARGETS:-}" ]; then
     HIP_ARCHS="${AMDGPU_TARGETS//,/;}"
-    HIP_CMAKE_ARGS+=(-DCMAKE_HIP_ARCHITECTURES="${HIP_ARCHS// /;}")
+    printf 'set(CMAKE_HIP_ARCHITECTURES "%s" CACHE STRING "")\n' "${HIP_ARCHS// /;}" >> "$CMAKE_TOOLCHAIN_FILE"
   fi
 fi
 
@@ -133,7 +133,6 @@ rm -rf build && mkdir build && cd build
 
 CMAKE_ARGS=(
   ..
-  "${HIP_CMAKE_ARGS[@]}"
   -DCMAKE_CXX_COMPILER="${CI_HIP_CXX_COMPILER:-/opt/dtk/bin/hipcc}"
   -DUSE_HCU=ON
   -DTRITON_REPO_ORGANIZATION="$TRITON_ORG"
@@ -179,7 +178,7 @@ cd ../..
 echo "----- build onnxruntime backend -----"
 cd triton-inference-server-onnxruntime-backend
 rm -rf build && mkdir build && cd build
-cmake .. "${HIP_CMAKE_ARGS[@]}" \
+cmake .. \
   -DCMAKE_CXX_COMPILER="${CI_HIP_CXX_COMPILER:-/opt/dtk/bin/hipcc}" \
   -DDTK_PATH=/opt/dtk \
   -DCMAKE_PREFIX_PATH=/opt/dtk \
@@ -194,7 +193,7 @@ cd ../..
 echo "----- build migraphx backend -----"
 cd triton-inference-server-migraphx-backend
 rm -rf build && mkdir build && cd build
-cmake .. "${HIP_CMAKE_ARGS[@]}" \
+cmake .. \
   -DCMAKE_CXX_COMPILER="${CI_HIP_CXX_COMPILER:-/opt/dtk/bin/hipcc}" \
   -DDTK_PATH=/opt/dtk \
   -DCMAKE_PREFIX_PATH=/opt/dtk \
@@ -211,7 +210,7 @@ if [ -d "$SRC_ROOT/triton-inference-server-pytorch-backend-das" ]; then
   echo "----- build pytorch backend -----"
   cd triton-inference-server-pytorch-backend-das
   rm -rf build && mkdir build && cd build
-  cmake .. "${HIP_CMAKE_ARGS[@]}" \
+  cmake .. \
     -DCMAKE_BUILD_TYPE=Release \
     -DTRITON_PYTORCH_ENABLE_PT2=OFF \
     -DCMAKE_CXX_COMPILER="${CI_HIP_CXX_COMPILER:-/opt/dtk/bin/hipcc}" \
