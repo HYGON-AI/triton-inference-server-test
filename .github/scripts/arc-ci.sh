@@ -58,6 +58,10 @@ case "${1:-}" in
             done
         fi
         echo "HIP compilation targets: ${AMDGPU_TARGETS:-image/compiler default}"
+        if [[ "${CI_HIP_CXX_COMPILER:-}" = /opt/dtk/bin/aicc ]]; then
+            # CMake compiles GPU kernels with a separate HIP-language frontend.
+            export HIPCXX=/opt/dtk/aillvm/bin/clang++
+        fi
         bash "$repo_root/.github/scripts/check-return-diagnostics.sh"
         export CI_SKIP_DEPS=1 CI_UPDATE_DEPS=1
         # An identical absolute prefix on both pods preserves native RPATHs.

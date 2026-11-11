@@ -19,7 +19,10 @@ docker build -f /path/to/repo/.github/images/aicc.Dockerfile \
 ```
 
 `CI_HIP_CXX_COMPILER=/opt/dtk/bin/aicc` selects the driver for the server and
-all three backends. Architecture flags remain scoped to the HIP driver;
+all three backends. ARC also selects `/opt/dtk/aillvm/bin/clang++` through
+`HIPCXX` for CMake HIP-language kernels and checks both compilation paths.
+`build.sh` pairs that frontend with its resource headers in CMake and ABI probes.
+Architecture flags remain scoped to the HIP driver;
 third-party projects can continue using their own host compiler.
 
 Load the same image onto all eligible runner nodes (or publish it to a

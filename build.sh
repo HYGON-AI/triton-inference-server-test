@@ -29,6 +29,23 @@ CACHE_CORE=${SRC_ROOT}/cache_core
 
 set -e
 
+# CMake's HIP language must use resource headers from the selected frontend,
+# including during compiler ABI probes. DTK otherwise defaults to DCC headers.
+HIP_CMAKE_ARGS=()
+if [ -n "${HIPCXX:-}" ]; then
+  HIP_RESOURCE_DIR=$("$HIPCXX" -print-resource-dir)
+  HIP_CMAKE_ARGS=(
+    -DCMAKE_HIP_COMPILER="$HIPCXX"
+    -DHIP_CXX_COMPILER="$HIPCXX"
+    -DHIP_CLANG_INCLUDE_PATH="$HIP_RESOURCE_DIR/include"
+    -DCMAKE_TRY_COMPILE_PLATFORM_VARIABLES=HIP_CLANG_INCLUDE_PATH
+  )
+  if [ -n "${AMDGPU_TARGETS:-}" ]; then
+    HIP_ARCHS="${AMDGPU_TARGETS//,/;}"
+    HIP_CMAKE_ARGS+=(-DCMAKE_HIP_ARCHITECTURES="${HIP_ARCHS// /;}")
+  fi
+fi
+
 cd "$WORK_BASE"
 
 # ============================================================
@@ -116,6 +133,7 @@ rm -rf build && mkdir build && cd build
 
 CMAKE_ARGS=(
   ..
+  "${HIP_CMAKE_ARGS[@]}"
   -DCMAKE_CXX_COMPILER="${CI_HIP_CXX_COMPILER:-/opt/dtk/bin/hipcc}"
   -DUSE_HCU=ON
   -DTRITON_REPO_ORGANIZATION="$TRITON_ORG"
@@ -161,7 +179,7 @@ cd ../..
 echo "----- build onnxruntime backend -----"
 cd triton-inference-server-onnxruntime-backend
 rm -rf build && mkdir build && cd build
-cmake .. \
+cmake .. "${HIP_CMAKE_ARGS[@]}" \
   -DCMAKE_CXX_COMPILER="${CI_HIP_CXX_COMPILER:-/opt/dtk/bin/hipcc}" \
   -DDTK_PATH=/opt/dtk \
   -DCMAKE_PREFIX_PATH=/opt/dtk \
@@ -176,7 +194,7 @@ cd ../..
 echo "----- build migraphx backend -----"
 cd triton-inference-server-migraphx-backend
 rm -rf build && mkdir build && cd build
-cmake .. \
+cmake .. "${HIP_CMAKE_ARGS[@]}" \
   -DCMAKE_CXX_COMPILER="${CI_HIP_CXX_COMPILER:-/opt/dtk/bin/hipcc}" \
   -DDTK_PATH=/opt/dtk \
   -DCMAKE_PREFIX_PATH=/opt/dtk \
@@ -193,7 +211,7 @@ if [ -d "$SRC_ROOT/triton-inference-server-pytorch-backend-das" ]; then
   echo "----- build pytorch backend -----"
   cd triton-inference-server-pytorch-backend-das
   rm -rf build && mkdir build && cd build
-  cmake .. \
+  cmake .. "${HIP_CMAKE_ARGS[@]}" \
     -DCMAKE_BUILD_TYPE=Release \
     -DTRITON_PYTORCH_ENABLE_PT2=OFF \
     -DCMAKE_CXX_COMPILER="${CI_HIP_CXX_COMPILER:-/opt/dtk/bin/hipcc}" \
