@@ -1,0 +1,52 @@
+--- a/src/core/call/call_state.h
++++ b/src/core/call/call_state.h
+@@ -158,6 +158,7 @@
+       case ClientToServerPullState::kTerminated:
+         return "Terminated";
+     }
++    return "Unknown";
+   }
+   template <typename Sink>
+   friend void AbslStringify(Sink& out, ClientToServerPullState state) {
+@@ -188,6 +189,7 @@
+       case ClientToServerPushState::kFinished:
+         return "Finished";
+     }
++    return "Unknown";
+   }
+   template <typename Sink>
+   friend void AbslStringify(Sink& out, ClientToServerPushState state) {
+@@ -241,6 +243,7 @@
+       case ServerToClientPullState::kTerminated:
+         return "Terminated";
+     }
++    return "Unknown";
+   }
+   template <typename Sink>
+   friend void AbslStringify(Sink& out, ServerToClientPullState state) {
+@@ -281,6 +284,7 @@
+       case ServerToClientPushState::kFinished:
+         return "Finished";
+     }
++    return "Unknown";
+   }
+   template <typename Sink>
+   friend void AbslStringify(Sink& out, ServerToClientPushState state) {
+@@ -311,6 +315,7 @@
+       case ServerTrailingMetadataState::kPulledCancel:
+         return "PulledCancel";
+     }
++    return "Unknown";
+   }
+   template <typename Sink>
+   friend void AbslStringify(Sink& out, ServerTrailingMetadataState state) {
+--- a/src/core/channelz/channelz.h
++++ b/src/core/channelz/channelz.h
+@@ -183,6 +183,7 @@
+       case EntityType::kMetricsDomainStorage:
+         return "metrics_domain_storage";
+     }
++    return "unknown";
+   }
+ 
+   static std::optional<EntityType> KindToEntityType(absl::string_view kind) {

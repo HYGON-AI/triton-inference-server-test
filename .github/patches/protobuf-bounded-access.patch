@@ -1,0 +1,68 @@
+--- a/upb/message/internal/accessors.h
++++ b/upb/message/internal/accessors.h
+@@ -352,8 +352,8 @@
+     const struct upb_Message* msg, const upb_MiniTableField* f) {
+   UPB_PRIVATE(_upb_MiniTableField_CheckIsArray)(f);
+   upb_Array* ret;
+-  const upb_Array* default_val = NULL;
+-  _upb_Message_GetNonExtensionField(msg, f, &default_val, &ret);
++  // Repeated fields have no presence and store a native-sized pointer.
++  memcpy(&ret, UPB_PRIVATE(_upb_Message_DataPtr)(msg, f), sizeof(ret));
+   return ret;
+ }
+ 
+@@ -422,9 +422,8 @@
+   UPB_UNUSED(msg);
+   UPB_PRIVATE(_upb_MiniTableField_CheckIsMap)(field);
+ #ifndef NDEBUG
+-  uintptr_t default_val = 0;
+   uintptr_t tagged;
+-  _upb_Message_GetNonExtensionField(msg, field, &default_val, &tagged);
++  memcpy(&tagged, UPB_PRIVATE(_upb_Message_DataPtr)(msg, field), sizeof(tagged));
+   UPB_ASSERT(!upb_TaggedMessagePtr_IsEmpty(tagged));
+ #endif
+ }
+@@ -434,8 +433,7 @@
+   UPB_PRIVATE(_upb_MiniTableField_CheckIsMap)(f);
+   UPB_PRIVATE(_upb_Message_AssertMapIsUntagged)(msg, f);
+   struct upb_Map* ret;
+-  const struct upb_Map* default_val = NULL;
+-  _upb_Message_GetNonExtensionField(msg, f, &default_val, &ret);
++  memcpy(&ret, UPB_PRIVATE(_upb_Message_DataPtr)(msg, f), sizeof(ret));
+   return ret;
+ }
+ 
+@@ -461,7 +459,11 @@
+   UPB_ASSUME(UPB_PRIVATE(_upb_MiniTableField_GetRep)(f) ==
+              UPB_SIZE(kUpb_FieldRep_4Byte, kUpb_FieldRep_8Byte));
+   UPB_ASSUME(upb_MiniTableField_IsScalar(f));
+-  upb_Message_SetBaseField(msg, f, &sub_message);
++  UPB_ASSERT(!upb_Message_IsFrozen(msg));
++  UPB_ASSUME(!upb_MiniTableField_IsExtension(f));
++  UPB_PRIVATE(_upb_Message_SetPresence)(msg, f);
++  memcpy(UPB_PRIVATE(_upb_Message_MutableDataPtr)(msg, f), &sub_message,
++         sizeof(sub_message));
+ }
+ 
+ UPB_API_INLINE const struct upb_Message* upb_Message_GetMessage(
+--- a/src/google/protobuf/compiler/java/context.cc
++++ b/src/google/protobuf/compiler/java/context.cc
+@@ -10,6 +10,7 @@
+ #include <string>
+ 
+ #include "absl/log/absl_log.h"
++#include "absl/strings/match.h"
+ #include "absl/strings/str_cat.h"
+ #include "absl/strings/string_view.h"
+ #include "absl/strings/strip.h"
+@@ -38,8 +39,8 @@
+ namespace {
+ bool EqualWithSuffix(absl::string_view name1, absl::string_view suffix,
+                      absl::string_view name2) {
+-  if (!absl::ConsumeSuffix(&name2, suffix)) return false;
+-  return name1 == name2;
++  return absl::StartsWith(name2, name1) &&
++         name2.substr(name1.size()) == suffix;
+ }
+ 
+ bool IsRepeatedFieldConflicting(const FieldDescriptor* field1,

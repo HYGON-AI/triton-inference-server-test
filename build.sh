@@ -29,12 +29,15 @@ CACHE_CORE=${SRC_ROOT}/cache_core
 
 set -e
 
-# ExternalProject starts fresh CMake processes. An inherited toolchain keeps
-# the HIP frontend and its resource headers paired in every configure/probe.
+# Share dependency fixes and matching HIP headers with nested CMake projects.
+export CMAKE_TOOLCHAIN_FILE="$WORK_BASE/.ci-hcu-toolchain.cmake"
+cat > "$CMAKE_TOOLCHAIN_FILE" <<EOF
+list(APPEND CMAKE_PROJECT_INCLUDE "$(dirname "$(realpath "$0")")/.github/cmake/dependency-fixes.cmake")
+list(REMOVE_DUPLICATES CMAKE_PROJECT_INCLUDE)
+EOF
 if [ -n "${HIPCXX:-}" ]; then
   HIP_RESOURCE_DIR=$("$HIPCXX" -print-resource-dir)
-  export CMAKE_TOOLCHAIN_FILE="$WORK_BASE/.ci-hcu-toolchain.cmake"
-  cat > "$CMAKE_TOOLCHAIN_FILE" <<EOF
+  cat >> "$CMAKE_TOOLCHAIN_FILE" <<EOF
 set(CMAKE_HIP_COMPILER "$HIPCXX" CACHE FILEPATH "")
 set(HIP_CXX_COMPILER "$HIPCXX" CACHE FILEPATH "")
 set(HIP_CLANG_INCLUDE_PATH "$HIP_RESOURCE_DIR/include" CACHE PATH "")
