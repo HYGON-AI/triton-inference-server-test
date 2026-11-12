@@ -29,8 +29,28 @@ defaults:
 # CI_IMAGE must contain matching HCU build/runtime dependencies.
 # ARC must mount /ci_public as shared storage in both job containers.
 jobs:
+  prepare-image:
+    name: Prepare CI image on eligible nodes
+    runs-on:
+      group: ci-general
+      labels: [self-hosted, ci, nmz1]
+    timeout-minutes: 60
+    env:
+      CI_IMAGE: ${{ inputs.ci_image || vars.CI_IMAGE }}
+      CI_IMAGE_ARCHIVE_DIR: ${{ vars.CI_IMAGE_ARCHIVE_DIR || '/ci_public/ci-images/triton-inference-server-test-ci/20261111-aicc-g2f732c' }}
+      CI_IMAGE_NODES: ${{ vars.CI_IMAGE_NODES || '10.17.1.3 10.17.1.4' }}
+    steps:
+      - name: Checkout tested commit
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Check or load shared CI image
+        run: bash .github/scripts/prepare-ci-image.sh
+
   build:
     name: Build Triton and backends (ARC)
+    needs: prepare-image
     runs-on: hygon-build
     timeout-minutes: 240
     container:

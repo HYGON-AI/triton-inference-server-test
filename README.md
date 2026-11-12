@@ -73,10 +73,11 @@ triton-inference-server-test/
 
 ### GitHub Actions CI
 
-CI 使用 K8s + ARC 调度，直接在作业容器中执行脚本，无需宿主机 Docker：
+CI 先准备候选节点的镜像，再使用 K8s + ARC 调度编译和测试作业。镜像准备使用宿主机 Docker；编译和测试脚本在作业容器中执行：
 
 | 作业 | runs-on | 工作内容 |
 | --- | --- | --- |
+| prepare-image | `ci-general` / `[self-hosted, ci, nmz1]` | 检查候选节点镜像，缺失时从共享包校验并加载 |
 | build | `hygon-build` | 编译 server、ONNX Runtime、MIGraphX 和 PyTorch backend，发布安装产物 |
 | test | `hygon-bw1100-1card` | 使用 build 产物执行 HTTP/gRPC、C++/Python 和模型推理测试 |
 
@@ -88,6 +89,25 @@ HCU 卡。8 个并发请求在同一张卡执行，不要求 8 张卡。batch 12
 `CI_IMAGE`，填写包含完整 HCU 构建和运行依赖的镜像地址，建议固定 digest。
 手动 Run workflow 也可通过 `ci_image` 输入覆盖镜像；build 和 test 始终使用同一配置。
 没有提供镜像时不会回退到之前缺少 Torch 的 DTK 基础镜像。
+
+每次 CI 触发后，`prepare-image` 通过 1.1 上现有 github 账号的 SSH 访问候选节点。
+已有正确镜像则跳过；缺失时校验共享压缩包 SHA-256，加载到节点 Docker，并核验镜像 ID。
+同名镜像 ID 不符、节点不可达或包损坏均使前置任务失败，后续 build/test 不会启动。
+不复用已有任务容器，任务容器仍由 ARC 创建。不安装 cron，也不修改 Pod 模板。
+
+可选 Actions variables（不设置时使用以下默认值）：
+
+| 变量 | 默认值 |
+| --- | --- |
+| `CI_IMAGE_ARCHIVE_DIR` | `/ci_public/ci-images/triton-inference-server-test-ci/20261111-aicc-g2f732c` |
+| `CI_IMAGE_NODES` | `10.17.1.3 10.17.1.4`，以空格分隔 |
+
+共享包目录须包含 `image.tar.gz`、`image.tar.gz.sha256`、`image-tag`、`image-id`。
+覆盖 `ci_image` 时，也需要将 `CI_IMAGE_ARCHIVE_DIR` 指向匹配该镜像的包。
+候选节点需已挂载同一共享目录，允许 github 账号使用 Docker，并接受 1.1 的 SSH 公钥认证；
+1.1 的 SSH known_hosts 须已有节点的已核验主机密钥。
+新增可调度节点前，应将它加入 `CI_IMAGE_NODES` 并配置上述访问条件，避免调度到未检查节点。
+前置任务覆盖候选节点后再放行 ARC 作业，不依赖预先知道本次任务最终调度到哪台节点。
 
 当前脚本对应 Python 3.12、HCU/HIP Torch 2.7.1、匹配的 HCU ONNX Runtime 1.19.2、
 `numpy<2`、DTK/MIGraphX，以及 CMake、Boost、protobuf、rapidjson 等构建依赖。
