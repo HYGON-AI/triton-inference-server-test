@@ -73,12 +73,11 @@ triton-inference-server-test/
 
 ### GitHub Actions CI
 
-CI 先从共享镜像包准备同仓库的私有 GHCR 镜像，再使用 K8s + ARC 调度编译和测试作业。
-具体节点由标签对应的 runner 池自动选择，缺失镜像时由容器运行时按需拉取：
+CI 使用 K8s + ARC 调度，直接在作业容器中执行脚本。镜像由内网仓库提供，
+K8s 在分配节点后按需拉取并创建非特权作业容器，卡测试只能访问分配的 HCU：
 
 | 作业 | runs-on | 工作内容 |
 | --- | --- | --- |
-| prepare-image | `hygon-build` | 校验共享包，发布或复用同仓库的私有 GHCR 镜像，输出固定 digest |
 | build | `hygon-build` | 编译 server、ONNX Runtime、MIGraphX 和 PyTorch backend，发布安装产物 |
 | test | `hygon-bw1100-1card` | 使用 build 产物执行 HTTP/gRPC、C++/Python 和模型推理测试 |
 
@@ -88,35 +87,10 @@ HCU 卡。8 个并发请求在同一张卡执行，不要求 8 张卡。batch 12
 
 使用前，在仓库 Settings → Secrets and variables → Actions → Variables 创建
 `CI_IMAGE`，填写包含完整 HCU 构建和运行依赖的镜像地址，建议固定 digest。
+`CI_IMAGE` 应设置为已上传内网仓库的完整镜像地址（可固定 digest）。
 手动 Run workflow 也可通过 `ci_image` 输入覆盖镜像；build 和 test 始终使用同一配置。
+CI 不发布镜像、不加载共享镜像包，也不执行宿主机 Docker 命令。
 没有提供镜像时不会回退到之前缺少 Torch 的 DTK 基础镜像。
-
-每次 CI 触发后，`prepare-image` 在 `hygon-build` 分配的节点上使用固定 digest 的
-公开 Skopeo 基础镜像读取共享包。首次发布先核对压缩包 SHA-256 和源镜像 ID，再上传到
-`ghcr.io/hygon-ai/triton-inference-server-test-ci` 的私有 package；已有匹配镜像时跳过上传。
-已有 package 必须是 private，否则直接失败。发布后再核对镜像 ID，并将不可变的
-`@sha256:...` 镜像引用传给 build 和 test，两个作业使用相同 digest。
-
-镜像发布使用该仓库自带的 `GITHUB_TOKEN`，仅准备作业声明 `packages: write`；
-编译、测试仅使用 `packages: read`，通过 `container.credentials` 自动提供拉取凭据。
-不需要个人 token、K8s kubeconfig、节点列表或 SSH 权限，不修改 Pod 模板，也不安装 cron。
-任何符合原有 runner 池调度条件的节点，都由 K8s 在启动任务容器时检查缓存并按需拉取镜像，
-无需在 CI 中预先枚举节点，也不复用手动启动的容器。
-
-共享源包仍保留在：
-
-```text
-/ci_public/ci-images/triton-inference-server-test-ci/20261111-aicc-g2f732c
-```
-
-目录须包含 `image.tar.gz`、`image.tar.gz.sha256`、`image-tag`、`image-id`。
-Actions variable `CI_IMAGE_ARCHIVE_DIR` 可覆盖该目录。`CI_IMAGE` / `ci_image` 表示共享源包
-对应的镜像 tag，须与 `image-tag` 匹配；实际作业镜像由前置任务输出的 GHCR digest 决定。
-`CI_IMAGE_NODES`、`CI_KUBECONFIG_PATH` 和 `CI_K8S_READONLY_KUBECONFIG` 均不再使用。
-
-首次发布需传输镜像层，耗时取决于网络；后续复用已发布的镜像，不会每轮重新上传。
-节点需要能拉取公开的 Skopeo 基础镜像及私有 GHCR 镜像。私有 package 创建或拉取受到组织
-策略阻止时，CI 明确失败，不回退到未检查的本地镜像。
 
 当前脚本对应 Python 3.12、HCU/HIP Torch 2.7.1、匹配的 HCU ONNX Runtime 1.19.2、
 `numpy<2`、DTK/MIGraphX，以及 CMake、Boost、protobuf、rapidjson 等构建依赖。
@@ -127,7 +101,7 @@ CI 在构建前检查框架类型和版本，跳过 `build.sh` 中自动安装�
 对应的 HIP 架构（或由镜像提供 `AMDGPU_TARGETS`），不要沿用其他型号的架构值。
 
 ARC 平台需在两类作业容器内挂载同一份 `/ci_public` 共享存储，并为单卡作业分配
-HCU 设备；本流程的私有 GHCR 拉取凭据由 workflow 自动提供。产物和日志位于：
+HCU 设备；私有镜像拉取权限由平台配置。产物和日志位于：
 
 ```text
 /ci_public/triton-inference-server-test/runs/<run-id>-<build-attempt>/

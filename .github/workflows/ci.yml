@@ -17,7 +17,6 @@ on:
 
 permissions:
   contents: read
-  packages: read
 
 concurrency:
   group: triton-test-arc-${{ github.ref }}
@@ -27,64 +26,15 @@ defaults:
   run:
     shell: bash
 
-# CI_IMAGE identifies the source archive; ARC jobs pull its verified private mirror.
+# CI_IMAGE must contain matching HCU build/runtime dependencies.
 # ARC must mount /ci_public as shared storage in both job containers.
 jobs:
-  prepare-image:
-    name: Prepare private CI image from shared archive
-    runs-on: hygon-build
-    timeout-minutes: 180
-    permissions:
-      contents: read
-      packages: write
-    container:
-      image: quay.io/skopeo/stable@sha256:80b3b934549428c7c24b9364b977b1f48cb8abe8ce99f74c1f16fe15c32aa342
-    outputs:
-      image: ${{ steps.publish.outputs.image }}
-    env:
-      CI_IMAGE: ${{ inputs.ci_image || vars.CI_IMAGE }}
-      CI_IMAGE_ARCHIVE_DIR: ${{ vars.CI_IMAGE_ARCHIVE_DIR || '/ci_public/ci-images/triton-inference-server-test-ci/20261111-aicc-g2f732c' }}
-      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-    steps:
-      - name: Install checkout tools
-        run: dnf install -y git-core
-
-      - name: Checkout tested commit
-        run: |
-          askpass=$(mktemp "$RUNNER_TEMP/triton-askpass.XXXXXX")
-          trap 'rm -f "$askpass"' EXIT
-          cat > "$askpass" <<'ASKPASS'
-          #!/bin/sh
-          case "$1" in
-            *Username*) printf '%s\n' x-access-token ;;
-            *Password*) printf '%s\n' "$GH_TOKEN" ;;
-            *) exit 1 ;;
-          esac
-          ASKPASS
-          chmod 700 "$askpass"
-          export GIT_ASKPASS="$askpass" GIT_TERMINAL_PROMPT=0
-          git init -q .
-          git remote add origin "https://github.com/$GITHUB_REPOSITORY.git"
-          git fetch --no-tags --depth=1 origin "$GITHUB_SHA"
-          git -c advice.detachedHead=false checkout --detach FETCH_HEAD
-
-      - name: Validate image publication guards
-        run: /__e/node24/bin/node --test .github/scripts/test-publish-ci-image.cjs
-
-      - name: Publish or reuse private CI image
-        id: publish
-        run: /__e/node24/bin/node .github/scripts/publish-ci-image.cjs
-
   build:
     name: Build Triton and backends (ARC)
-    needs: prepare-image
     runs-on: hygon-build
     timeout-minutes: 240
     container:
-      image: ${{ needs.prepare-image.outputs.image }}
-      credentials:
-        username: ${{ github.actor }}
-        password: ${{ secrets.GITHUB_TOKEN }}
+      image: ${{ inputs.ci_image || vars.CI_IMAGE }}
     outputs:
       artifact_dir: ${{ steps.build.outputs.artifact_dir }}
     env:
@@ -106,14 +56,11 @@ jobs:
 
   test:
     name: Single-HCU integration tests (ARC)
-    needs: [prepare-image, build]
+    needs: build
     runs-on: hygon-bw1100-1card
     timeout-minutes: 180
     container:
-      image: ${{ needs.prepare-image.outputs.image }}
-      credentials:
-        username: ${{ github.actor }}
-        password: ${{ secrets.GITHUB_TOKEN }}
+      image: ${{ inputs.ci_image || vars.CI_IMAGE }}
     env:
       CI_ARTIFACT_DIR: ${{ needs.build.outputs.artifact_dir }}
     steps:
