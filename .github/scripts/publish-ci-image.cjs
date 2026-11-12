@@ -94,3 +94,28 @@ async function publish({core, github, context, run = skopeo, env = process.env})
 }
 
 module.exports = {publish, sha256};
+
+if (require.main === module) {
+  const token = process.env.GH_TOKEN;
+  const [owner, repo] = (process.env.GITHUB_REPOSITORY || '').split('/');
+  const core = {
+    setSecret(value) { console.log(`::add-mask::${value}`); },
+    info(value) { console.log(value); },
+    setOutput(key, value) {
+      require('node:fs').appendFileSync(process.env.GITHUB_OUTPUT, `${key}=${value}\n`);
+    },
+  };
+  const github = {rest: {packages: {
+    async getPackageForOrganization({org, package_type, package_name}) {
+      const response = await fetch(`https://api.github.com/orgs/${encodeURIComponent(org)}/packages/${package_type}/${encodeURIComponent(package_name)}`, {
+        headers: {Authorization: `Bearer ${token}`, Accept: 'application/vnd.github+json',
+          'X-GitHub-Api-Version': '2022-11-28', 'User-Agent': 'triton-ci-image-publisher'},
+        signal: AbortSignal.timeout(30000),
+      });
+      if (!response.ok) throw Object.assign(new Error(`Package API returned HTTP ${response.status}`), {status: response.status});
+      return {data: await response.json()};
+    },
+  }}};
+  publish({core, github, context: {repo: {owner, repo}, actor: process.env.GITHUB_ACTOR}})
+    .catch(error => { console.error(`::error::${error.message}`); process.exitCode = 1; });
+}

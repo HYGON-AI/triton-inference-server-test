@@ -50,24 +50,30 @@ jobs:
         run: dnf install -y git-core
 
       - name: Checkout tested commit
-        uses: actions/checkout@v4
-        with:
-          persist-credentials: false
+        run: |
+          askpass=$(mktemp "$RUNNER_TEMP/triton-askpass.XXXXXX")
+          trap 'rm -f "$askpass"' EXIT
+          cat > "$askpass" <<'ASKPASS'
+          #!/bin/sh
+          case "$1" in
+            *Username*) printf '%s\n' x-access-token ;;
+            *Password*) printf '%s\n' "$GH_TOKEN" ;;
+            *) exit 1 ;;
+          esac
+          ASKPASS
+          chmod 700 "$askpass"
+          export GIT_ASKPASS="$askpass" GIT_TERMINAL_PROMPT=0
+          git init -q .
+          git remote add origin "https://github.com/$GITHUB_REPOSITORY.git"
+          git fetch --no-tags --depth=1 origin "$GITHUB_SHA"
+          git -c advice.detachedHead=false checkout --detach FETCH_HEAD
 
       - name: Validate image publication guards
-        uses: actions/github-script@373c709c69115d41ff229c7e5df9f8788daa9553 # v9
-        with:
-          script: |
-            require('node:child_process').execFileSync(process.execPath,
-              ['--test', '.github/scripts/test-publish-ci-image.cjs'], {stdio: 'inherit'});
+        run: /__e/node24/bin/node --test .github/scripts/test-publish-ci-image.cjs
 
       - name: Publish or reuse private CI image
         id: publish
-        uses: actions/github-script@373c709c69115d41ff229c7e5df9f8788daa9553 # v9
-        with:
-          script: |
-            const {publish} = require('./.github/scripts/publish-ci-image.cjs');
-            await publish({core, github, context});
+        run: /__e/node24/bin/node .github/scripts/publish-ci-image.cjs
 
   build:
     name: Build Triton and backends (ARC)
