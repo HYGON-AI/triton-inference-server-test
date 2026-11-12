@@ -17,6 +17,7 @@ on:
 
 permissions:
   contents: read
+  packages: read
 
 concurrency:
   group: triton-test-arc-${{ github.ref }}
@@ -26,32 +27,47 @@ defaults:
   run:
     shell: bash
 
-# CI_IMAGE must contain matching HCU build/runtime dependencies.
+# CI_IMAGE identifies the source archive; ARC jobs pull its verified private mirror.
 # ARC must mount /ci_public as shared storage in both job containers.
 jobs:
   prepare-image:
-    name: Prepare CI image on eligible nodes
-    runs-on:
-      group: ci-general
-      labels: [self-hosted, ci, nmz1]
-    timeout-minutes: 60
+    name: Prepare private CI image from shared archive
+    runs-on: hygon-build
+    timeout-minutes: 180
+    permissions:
+      contents: read
+      packages: write
+    container:
+      image: quay.io/skopeo/stable@sha256:80b3b934549428c7c24b9364b977b1f48cb8abe8ce99f74c1f16fe15c32aa342
+    outputs:
+      image: ${{ steps.publish.outputs.image }}
     env:
       CI_IMAGE: ${{ inputs.ci_image || vars.CI_IMAGE }}
       CI_IMAGE_ARCHIVE_DIR: ${{ vars.CI_IMAGE_ARCHIVE_DIR || '/ci_public/ci-images/triton-inference-server-test-ci/20261111-aicc-g2f732c' }}
-      CI_ARC_NAMESPACE: ${{ vars.CI_ARC_NAMESPACE || 'arc-runners' }}
-      CI_KUBECONFIG_PATH: ${{ vars.CI_KUBECONFIG_PATH }}
-      CI_K8S_READONLY_KUBECONFIG: ${{ secrets.CI_K8S_READONLY_KUBECONFIG }}
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
+      - name: Install checkout tools
+        run: dnf install -y git-core
+
       - name: Checkout tested commit
         uses: actions/checkout@v4
         with:
           persist-credentials: false
 
-      - name: Validate dynamic node discovery
-        run: python3 -m unittest discover -s .github/scripts -p test_discover_ci_image_nodes.py
+      - name: Validate image publication guards
+        uses: actions/github-script@373c709c69115d41ff229c7e5df9f8788daa9553 # v9
+        with:
+          script: |
+            require('node:child_process').execFileSync(process.execPath,
+              ['--test', '.github/scripts/test-publish-ci-image.cjs'], {stdio: 'inherit'});
 
-      - name: Discover pool nodes and prepare shared CI image
-        run: bash .github/scripts/prepare-ci-image.sh
+      - name: Publish or reuse private CI image
+        id: publish
+        uses: actions/github-script@373c709c69115d41ff229c7e5df9f8788daa9553 # v9
+        with:
+          script: |
+            const {publish} = require('./.github/scripts/publish-ci-image.cjs');
+            await publish({core, github, context});
 
   build:
     name: Build Triton and backends (ARC)
@@ -59,7 +75,10 @@ jobs:
     runs-on: hygon-build
     timeout-minutes: 240
     container:
-      image: ${{ inputs.ci_image || vars.CI_IMAGE }}
+      image: ${{ needs.prepare-image.outputs.image }}
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
     outputs:
       artifact_dir: ${{ steps.build.outputs.artifact_dir }}
     env:
@@ -81,11 +100,14 @@ jobs:
 
   test:
     name: Single-HCU integration tests (ARC)
-    needs: build
+    needs: [prepare-image, build]
     runs-on: hygon-bw1100-1card
     timeout-minutes: 180
     container:
-      image: ${{ inputs.ci_image || vars.CI_IMAGE }}
+      image: ${{ needs.prepare-image.outputs.image }}
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
     env:
       CI_ARTIFACT_DIR: ${{ needs.build.outputs.artifact_dir }}
     steps:

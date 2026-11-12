@@ -73,11 +73,12 @@ triton-inference-server-test/
 
 ### GitHub Actions CI
 
-CI 先准备候选节点的镜像，再使用 K8s + ARC 调度编译和测试作业。镜像准备使用宿主机 Docker；编译和测试脚本在作业容器中执行：
+CI 先从共享镜像包准备同仓库的私有 GHCR 镜像，再使用 K8s + ARC 调度编译和测试作业。
+具体节点由标签对应的 runner 池自动选择，缺失镜像时由容器运行时按需拉取：
 
 | 作业 | runs-on | 工作内容 |
 | --- | --- | --- |
-| prepare-image | `ci-general` / `[self-hosted, ci, nmz1]` | 检查候选节点镜像，缺失时从共享包校验并加载 |
+| prepare-image | `hygon-build` | 校验共享包，发布或复用同仓库的私有 GHCR 镜像，输出固定 digest |
 | build | `hygon-build` | 编译 server、ONNX Runtime、MIGraphX 和 PyTorch backend，发布安装产物 |
 | test | `hygon-bw1100-1card` | 使用 build 产物执行 HTTP/gRPC、C++/Python 和模型推理测试 |
 
@@ -90,41 +91,32 @@ HCU 卡。8 个并发请求在同一张卡执行，不要求 8 张卡。batch 12
 手动 Run workflow 也可通过 `ci_image` 输入覆盖镜像；build 和 test 始终使用同一配置。
 没有提供镜像时不会回退到之前缺少 Torch 的 DTK 基础镜像。
 
-每次 CI 触发后，`prepare-image` 从 workflow 中提取 ARC runner 池名称，读取对应的
-`job-template-<pool>` ConfigMap 和完整节点列表。它按实际 `nodeSelector`、必需的
-node affinity（含 metadata.name 条件）及 nodeName 约束动态发现候选节点，取所有池的并集。
-不使用固定的 IP 清单；新增匹配节点会在后续 CI 自动发现。不会因为节点暂时未 Ready、
-被 cordon 或当前容量不足而遗漏可能稍后参与调度的节点。
+每次 CI 触发后，`prepare-image` 在 `hygon-build` 分配的节点上使用固定 digest 的
+公开 Skopeo 基础镜像读取共享包。首次发布先核对压缩包 SHA-256 和源镜像 ID，再上传到
+`ghcr.io/hygon-ai/triton-inference-server-test-ci` 的私有 package；已有匹配镜像时跳过上传。
+已有 package 必须是 private，否则直接失败。发布后再核对镜像 ID，并将不可变的
+`@sha256:...` 镜像引用传给 build 和 test，两个作业使用相同 digest。
 
-1.1 的前置任务通过 github 账号 SSH 检查每个候选节点：已有正确镜像则跳过；缺失时
-校验共享压缩包 SHA-256，加载到节点 Docker，并核验镜像 ID。同名镜像 ID 不符、
-发现失败、节点不可达或包损坏均使前置任务失败，后续 build/test 不会启动。
-不复用已有任务容器，任务容器仍由 ARC 创建。不安装 cron，也不修改 Pod 模板。
+镜像发布使用该仓库自带的 `GITHUB_TOKEN`，仅准备作业声明 `packages: write`；
+编译、测试仅使用 `packages: read`，通过 `container.credentials` 自动提供拉取凭据。
+不需要个人 token、K8s kubeconfig、节点列表或 SSH 权限，不修改 Pod 模板，也不安装 cron。
+任何符合原有 runner 池调度条件的节点，都由 K8s 在启动任务容器时检查缓存并按需拉取镜像，
+无需在 CI 中预先枚举节点，也不复用手动启动的容器。
 
-前置 runner 需有 kubectl、Python 3 和 PyYAML。K8s 凭据只需以下读取权限：
+共享源包仍保留在：
 
-- 集群范围 `list nodes`。
-- `arc-runners` 内 `get configmaps`，仅需 `job-template-hygon-build` 和
-  `job-template-hygon-bw1100-1card`。
+```text
+/ci_public/ci-images/triton-inference-server-test-ci/20261111-aicc-g2f732c
+```
 
-可将已有只读 kubeconfig 的宿主机路径填入 Actions variable `CI_KUBECONFIG_PATH`，
-或将只读 kubeconfig 内容填入 Actions secret `CI_K8S_READONLY_KUBECONFIG`。
-secret 方式会写入权限 0600 的临时文件，并在步骤退出时删除；否则使用现有 KUBECONFIG。
-缺少凭据或权限时明确失败，不回退到固定节点，也不跳过镜像保障。
+目录须包含 `image.tar.gz`、`image.tar.gz.sha256`、`image-tag`、`image-id`。
+Actions variable `CI_IMAGE_ARCHIVE_DIR` 可覆盖该目录。`CI_IMAGE` / `ci_image` 表示共享源包
+对应的镜像 tag，须与 `image-tag` 匹配；实际作业镜像由前置任务输出的 GHCR digest 决定。
+`CI_IMAGE_NODES`、`CI_KUBECONFIG_PATH` 和 `CI_K8S_READONLY_KUBECONFIG` 均不再使用。
 
-可选 Actions variables：
-
-| 变量 | 默认值 |
-| --- | --- |
-| `CI_IMAGE_ARCHIVE_DIR` | `/ci_public/ci-images/triton-inference-server-test-ci/20261111-aicc-g2f732c` |
-| `CI_ARC_NAMESPACE` | `arc-runners` |
-
-共享包目录须包含 `image.tar.gz`、`image.tar.gz.sha256`、`image-tag`、`image-id`。
-覆盖 `ci_image` 时，也需要将 `CI_IMAGE_ARCHIVE_DIR` 指向匹配该镜像的包。
-候选节点需已挂载同一共享目录，并允许 github 账号使用 Docker 和从 1.1 进行 SSH 公钥认证；
-1.1 的 SSH known_hosts 须有已核验主机密钥。默认使用 K8s 节点 InternalIP（缺失时用节点名）；
-若 SSH 使用其它入口，可使用节点已有/经管理员配置的 `ci.hygon.cn/ssh-host` annotation。
-新增节点不需要再维护 CI_IMAGE_NODES，该变量已停用。拓扑或调度条件变更后应重新触发 CI。
+首次发布需传输镜像层，耗时取决于网络；后续复用已发布的镜像，不会每轮重新上传。
+节点需要能拉取公开的 Skopeo 基础镜像及私有 GHCR 镜像。私有 package 创建或拉取受到组织
+策略阻止时，CI 明确失败，不回退到未检查的本地镜像。
 
 当前脚本对应 Python 3.12、HCU/HIP Torch 2.7.1、匹配的 HCU ONNX Runtime 1.19.2、
 `numpy<2`、DTK/MIGraphX，以及 CMake、Boost、protobuf、rapidjson 等构建依赖。
@@ -135,7 +127,7 @@ CI 在构建前检查框架类型和版本，跳过 `build.sh` 中自动安装�
 对应的 HIP 架构（或由镜像提供 `AMDGPU_TARGETS`），不要沿用其他型号的架构值。
 
 ARC 平台需在两类作业容器内挂载同一份 `/ci_public` 共享存储，并为单卡作业分配
-HCU 设备；私有镜像拉取权限由平台配置。产物和日志位于：
+HCU 设备；本流程的私有 GHCR 拉取凭据由 workflow 自动提供。产物和日志位于：
 
 ```text
 /ci_public/triton-inference-server-test/runs/<run-id>-<build-attempt>/
