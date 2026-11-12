@@ -5,8 +5,21 @@ set -euo pipefail
 
 image="${CI_IMAGE:?CI_IMAGE is required}"
 archive_dir="${CI_IMAGE_ARCHIVE_DIR:-/ci_public/ci-images/triton-inference-server-test-ci/20261111-aicc-g2f732c}"
-read -r -a nodes <<< "${CI_IMAGE_NODES:-10.17.1.3 10.17.1.4}"
-[[ ${#nodes[@]} -gt 0 ]] || { echo 'No image preparation nodes configured.' >&2; exit 1; }
+script_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+credential_file=''
+cleanup() { [[ -z "$credential_file" ]] || rm -f -- "$credential_file"; }
+trap cleanup EXIT
+if [[ -n "${CI_K8S_READONLY_KUBECONFIG:-}" ]]; then
+    credential_file=$(umask 077; mktemp "${RUNNER_TEMP:-/tmp}/triton-kubeconfig.XXXXXX")
+    printf '%s\n' "$CI_K8S_READONLY_KUBECONFIG" > "$credential_file"
+    unset CI_K8S_READONLY_KUBECONFIG
+    export KUBECONFIG="$credential_file"
+elif [[ -n "${CI_KUBECONFIG_PATH:-}" ]]; then
+    export KUBECONFIG="$CI_KUBECONFIG_PATH"
+fi
+targets=$(python3 "$script_dir/discover-ci-image-nodes.py")
+[[ -n "$targets" ]] || { echo 'Dynamic discovery returned no nodes.' >&2; exit 1; }
+mapfile -t nodes <<< "$targets"
 [[ -d "$archive_dir" ]] || { echo "Shared image directory not found: $archive_dir" >&2; exit 1; }
 archive_image=$(cat "$archive_dir/image-tag")
 expected_id=$(cat "$archive_dir/image-id")
@@ -21,7 +34,7 @@ read -r archive_sha _ < "$archive_dir/image.tar.gz.sha256"
 }
 
 for node in "${nodes[@]}"; do
-    [[ "$node" =~ ^[a-zA-Z0-9][a-zA-Z0-9.-]*$ ]] || { echo "Invalid node: $node" >&2; exit 1; }
+    [[ "$node" =~ ^[a-zA-Z0-9][a-zA-Z0-9.:-]*$ ]] || { echo "Invalid node: $node" >&2; exit 1; }
     printf '\nPreparing CI image on %s\n' "$node"
     printf -v remote_command 'bash -s -- %q %q %q %q' "$image" "$archive_dir" "$expected_id" "$archive_sha"
     ssh -o BatchMode=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=15 \

@@ -90,24 +90,41 @@ HCU 卡。8 个并发请求在同一张卡执行，不要求 8 张卡。batch 12
 手动 Run workflow 也可通过 `ci_image` 输入覆盖镜像；build 和 test 始终使用同一配置。
 没有提供镜像时不会回退到之前缺少 Torch 的 DTK 基础镜像。
 
-每次 CI 触发后，`prepare-image` 通过 1.1 上现有 github 账号的 SSH 访问候选节点。
-已有正确镜像则跳过；缺失时校验共享压缩包 SHA-256，加载到节点 Docker，并核验镜像 ID。
-同名镜像 ID 不符、节点不可达或包损坏均使前置任务失败，后续 build/test 不会启动。
+每次 CI 触发后，`prepare-image` 从 workflow 中提取 ARC runner 池名称，读取对应的
+`job-template-<pool>` ConfigMap 和完整节点列表。它按实际 `nodeSelector`、必需的
+node affinity（含 metadata.name 条件）及 nodeName 约束动态发现候选节点，取所有池的并集。
+不使用固定的 IP 清单；新增匹配节点会在后续 CI 自动发现。不会因为节点暂时未 Ready、
+被 cordon 或当前容量不足而遗漏可能稍后参与调度的节点。
+
+1.1 的前置任务通过 github 账号 SSH 检查每个候选节点：已有正确镜像则跳过；缺失时
+校验共享压缩包 SHA-256，加载到节点 Docker，并核验镜像 ID。同名镜像 ID 不符、
+发现失败、节点不可达或包损坏均使前置任务失败，后续 build/test 不会启动。
 不复用已有任务容器，任务容器仍由 ARC 创建。不安装 cron，也不修改 Pod 模板。
 
-可选 Actions variables（不设置时使用以下默认值）：
+前置 runner 需有 kubectl、Python 3 和 PyYAML。K8s 凭据只需以下读取权限：
+
+- 集群范围 `list nodes`。
+- `arc-runners` 内 `get configmaps`，仅需 `job-template-hygon-build` 和
+  `job-template-hygon-bw1100-1card`。
+
+可将已有只读 kubeconfig 的宿主机路径填入 Actions variable `CI_KUBECONFIG_PATH`，
+或将只读 kubeconfig 内容填入 Actions secret `CI_K8S_READONLY_KUBECONFIG`。
+secret 方式会写入权限 0600 的临时文件，并在步骤退出时删除；否则使用现有 KUBECONFIG。
+缺少凭据或权限时明确失败，不回退到固定节点，也不跳过镜像保障。
+
+可选 Actions variables：
 
 | 变量 | 默认值 |
 | --- | --- |
 | `CI_IMAGE_ARCHIVE_DIR` | `/ci_public/ci-images/triton-inference-server-test-ci/20261111-aicc-g2f732c` |
-| `CI_IMAGE_NODES` | `10.17.1.3 10.17.1.4`，以空格分隔 |
+| `CI_ARC_NAMESPACE` | `arc-runners` |
 
 共享包目录须包含 `image.tar.gz`、`image.tar.gz.sha256`、`image-tag`、`image-id`。
 覆盖 `ci_image` 时，也需要将 `CI_IMAGE_ARCHIVE_DIR` 指向匹配该镜像的包。
-候选节点需已挂载同一共享目录，允许 github 账号使用 Docker，并接受 1.1 的 SSH 公钥认证；
-1.1 的 SSH known_hosts 须已有节点的已核验主机密钥。
-新增可调度节点前，应将它加入 `CI_IMAGE_NODES` 并配置上述访问条件，避免调度到未检查节点。
-前置任务覆盖候选节点后再放行 ARC 作业，不依赖预先知道本次任务最终调度到哪台节点。
+候选节点需已挂载同一共享目录，并允许 github 账号使用 Docker 和从 1.1 进行 SSH 公钥认证；
+1.1 的 SSH known_hosts 须有已核验主机密钥。默认使用 K8s 节点 InternalIP（缺失时用节点名）；
+若 SSH 使用其它入口，可使用节点已有/经管理员配置的 `ci.hygon.cn/ssh-host` annotation。
+新增节点不需要再维护 CI_IMAGE_NODES，该变量已停用。拓扑或调度条件变更后应重新触发 CI。
 
 当前脚本对应 Python 3.12、HCU/HIP Torch 2.7.1、匹配的 HCU ONNX Runtime 1.19.2、
 `numpy<2`、DTK/MIGraphX，以及 CMake、Boost、protobuf、rapidjson 等构建依赖。

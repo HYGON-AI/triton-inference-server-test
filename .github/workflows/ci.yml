@@ -38,14 +38,19 @@ jobs:
     env:
       CI_IMAGE: ${{ inputs.ci_image || vars.CI_IMAGE }}
       CI_IMAGE_ARCHIVE_DIR: ${{ vars.CI_IMAGE_ARCHIVE_DIR || '/ci_public/ci-images/triton-inference-server-test-ci/20261111-aicc-g2f732c' }}
-      CI_IMAGE_NODES: ${{ vars.CI_IMAGE_NODES || '10.17.1.3 10.17.1.4' }}
+      CI_ARC_NAMESPACE: ${{ vars.CI_ARC_NAMESPACE || 'arc-runners' }}
+      CI_KUBECONFIG_PATH: ${{ vars.CI_KUBECONFIG_PATH }}
+      CI_K8S_READONLY_KUBECONFIG: ${{ secrets.CI_K8S_READONLY_KUBECONFIG }}
     steps:
       - name: Checkout tested commit
         uses: actions/checkout@v4
         with:
           persist-credentials: false
 
-      - name: Check or load shared CI image
+      - name: Validate dynamic node discovery
+        run: python3 -m unittest discover -s .github/scripts -p test_discover_ci_image_nodes.py
+
+      - name: Discover pool nodes and prepare shared CI image
         run: bash .github/scripts/prepare-ci-image.sh
 
   build:
