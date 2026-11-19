@@ -14,6 +14,11 @@ on:
         description: HCU image (overrides the CI_IMAGE repository variable)
         required: false
         type: string
+      src_repo:
+        description: 
+        required: false
+      src_sha:
+        required: false
 
 permissions:
   contents: read
