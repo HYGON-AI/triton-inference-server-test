@@ -73,7 +73,8 @@ triton-inference-server-test/
 
 ### GitHub Actions CI
 
-CI 使用 K8s + ARC 调度，直接在作业容器中执行脚本，无需宿主机 Docker：
+CI 使用 K8s + ARC 调度，直接在作业容器中执行脚本。镜像由内网仓库提供，
+K8s 在分配节点后按需拉取并创建非特权作业容器，卡测试只能访问分配的 HCU：
 
 | 作业 | runs-on | 工作内容 |
 | --- | --- | --- |
@@ -86,7 +87,9 @@ HCU 卡。8 个并发请求在同一张卡执行，不要求 8 张卡。batch 12
 
 使用前，在仓库 Settings → Secrets and variables → Actions → Variables 创建
 `CI_IMAGE`，填写包含完整 HCU 构建和运行依赖的镜像地址，建议固定 digest。
+`CI_IMAGE` 应设置为已上传内网仓库的完整镜像地址（可固定 digest）。
 手动 Run workflow 也可通过 `ci_image` 输入覆盖镜像；build 和 test 始终使用同一配置。
+CI 不发布镜像、不加载共享镜像包，也不执行宿主机 Docker 命令。
 没有提供镜像时不会回退到之前缺少 Torch 的 DTK 基础镜像。
 
 当前脚本对应 Python 3.12、HCU/HIP Torch 2.7.1、匹配的 HCU ONNX Runtime 1.19.2、

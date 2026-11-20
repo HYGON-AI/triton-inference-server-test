@@ -48,6 +48,20 @@ def normalize_name(name):
 def main():
     command = sys.argv[1]
     directory = Path(sys.argv[2]) if len(sys.argv) > 2 else None
+    if command == "prepare-onnx-runtime":
+        # CMake creates this SONAME link only in the build container. A fresh
+        # test container must create it independently in the matching wheel.
+        distribution = metadata.distribution("onnxruntime")
+        capi = Path(distribution.locate_file("onnxruntime/capi"))
+        version = distribution.version.split("+", 1)[0]
+        library = capi / f"libonnxruntime.so.{version}"
+        if not library.is_file():
+            raise RuntimeError(f"ONNX Runtime shared library is missing: {library}")
+        soname = capi / "libonnxruntime.so.1"
+        if not soname.exists():
+            soname.symlink_to(library.name)
+        print(capi)
+        return
     if command == "requirements":
         # Avoid pip freeze's build-pod-local file:// URLs.
         requirements = {}

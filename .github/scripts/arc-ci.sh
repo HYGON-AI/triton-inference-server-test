@@ -30,6 +30,9 @@ prepare_image() {
     source "$repo_root/env.sh"
     set -u
     python3 "$repo_root/.github/scripts/arc_runtime.py" check-image
+    local ort_capi
+    ort_capi="$(python3 "$repo_root/.github/scripts/arc_runtime.py" prepare-onnx-runtime)"
+    export LD_LIBRARY_PATH="$ort_capi:${LD_LIBRARY_PATH:-}"
 }
 
 case "${1:-}" in
@@ -50,11 +53,16 @@ case "${1:-}" in
             targets="${AMDGPU_TARGETS//;/ }"
             read -r -a architectures <<< "${targets//,/ }"
             for architecture in "${architectures[@]}"; do
-                # All backend CMake projects use hipcc as their C++ compiler.
-                export CXXFLAGS="${CXXFLAGS:-} --offload-arch=$architecture"
+                # Scope GPU architecture flags to hipcc; third-party projects may use GCC.
+                export HIPCC_COMPILE_FLAGS_APPEND="${HIPCC_COMPILE_FLAGS_APPEND:-} --offload-arch=$architecture"
             done
         fi
         echo "HIP compilation targets: ${AMDGPU_TARGETS:-image/compiler default}"
+        if [[ "${CI_HIP_CXX_COMPILER:-}" = /opt/dtk/bin/aicc ]]; then
+            # CMake compiles GPU kernels with a separate HIP-language frontend.
+            export HIPCXX=/opt/dtk/aillvm/bin/clang++
+        fi
+        bash "$repo_root/.github/scripts/check-return-diagnostics.sh"
         export CI_SKIP_DEPS=1 CI_UPDATE_DEPS=1
         # An identical absolute prefix on both pods preserves native RPATHs.
         export CI_INSTALL_PREFIX="$run_dir/install"
